@@ -39,7 +39,9 @@ spec:
                 - path: apps/external-secrets/application.yaml
                 - path: apps/metallb/application.yaml
                 - path: apps/argo-registration/application.yaml
-                - path: apps/odf/application.yaml
+                # apps/odf is intentionally omitted: this deployment keeps the
+                # pre-existing, ZTP-installed ODF on the hub. Managing it here
+                # would collide with that live storage (BYO ODF, like BYO RHACM).
                 - path: apps/rhoai/application.yaml
                 - path: apps/rhoai-prerequisites/application.yaml
                 - path: bootstrap/dedicated-hub/application.yaml
@@ -56,23 +58,20 @@ spec:
       destination:
         server: '{{.spec.destination.server}}'
         namespace: '{{.spec.destination.namespace}}'
-  # ODF provides the object storage ACM observability needs, so acm syncs
-  # the full apps/acm/manifests. A new grid generates its CA, and grid-bootstrap
+  # This deployment brings its own RHACM and ODF (ZTP-installed): apps/odf is
+  # omitted above, and apps/acm/manifests is scoped to Submariner only
+  # (see that kustomization). A new grid generates its CA, and grid-bootstrap
   # binds global in place of the rhoai app's binding. acm-models brings the
   # sample model and the console's catalog (its ApplicationSets and
   # AppProjects), not its GitOpsCluster: argo-registration registers clusters
   # here.
   # Limitador runs on the sites, so limitador-redis leaves out its storage config.
-  # ODF's operator channel follows the hub's OpenShift minor version.
   templatePatch: |
     {{- $spec := .spec }}
     {{- if eq .metadata.name "grid-bootstrap" }}
     {{- range $spec.sources }}{{ if hasKey . "helm" }}
     {{- $_ := set .helm "parameters" (list (dict "name" "external.certManager.ca.mode" "value" "Generate") (dict "name" "managedClusters.createClusterSetBinding" "value" "true")) }}
     {{- end }}{{ end }}
-    {{- end }}
-    {{- if eq .metadata.name "odf" }}
-    {{- $_ := set $spec.source.helm "parameters" (list (dict "name" "openshift.version" "value" (index .metadata.labels "openshiftVersion-major-minor"))) }}
     {{- end }}
     {{- if eq .metadata.name "acm-models" }}
     {{- $_ := set $spec.source "directory" (dict "include" "{facebook-opt-125m-03-applicationset.yaml,maas-03-applicationset.yaml,catalog-03-appprojects.yaml,catalog-04-applicationsets.yaml}") }}
