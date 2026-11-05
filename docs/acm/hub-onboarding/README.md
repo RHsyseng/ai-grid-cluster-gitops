@@ -42,7 +42,7 @@ Delivered by the acm Argo app ([apps/acm/manifests](../../../apps/acm/manifests)
 1. OperatorGroup targeting open-cluster-management.
 2. Subscription advanced-cluster-management, channel release-2.17, source redhat-operators.
 3. MultiClusterHub with an empty spec. The hub registers itself as local-cluster.
-4. A ManagedClusterSetBinding for global, a Placement over global, and ClusterManagementAddOns governance-policy-framework and config-policy-controller installed through that Placement. Every cluster then runs policies, the hub included.
+4. A ManagedClusterSetBinding for global, a Placement over global, and ClusterManagementAddOns governance-policy-framework, config-policy-controller, and governance-standalone-hub-templating installed through that Placement. Every cluster then runs policies and can resolve hub templates, the hub included.
 5. Import each spoke. It joins the global set. See [cluster onboarding](../cluster-onboarding/README.md):
 
 ```bash
@@ -104,6 +104,10 @@ BOOTSTRAP_PROFILE=dedicated-hub ./bootstrap.sh
 ```
 
 Its root ApplicationSet, [bootstrap/dedicated-hub/applicationset.yaml](../../../bootstrap/dedicated-hub/applicationset.yaml), syncs acm, acm-models, ai-grid-o11y, ai-grid-policies, ai-grid-spokes, argo-registration, cert-manager, console, external-secrets, gitops-config, grid-bootstrap, keycloak, limitador-redis, maas-db, external-services, metallb, odf, rhoai and rhoai-prerequisites. ACM syncs the full [apps/acm/manifests](../../../apps/acm/manifests) — core, observability and Submariner — with [apps/odf](../../../apps/odf) supplying the object storage observability needs. The default ApplicationSet skips [apps/cert-manager](../../../apps/cert-manager), because on a combined hub the RHOAI app installs cert-manager.
+
+The root generates all Applications except ODF directly from Git, so ACM and argo-registration can start on a fresh hub without an existing Argo cluster registration. ODF is generated separately once the local-cluster registration carries the openshiftVersion-major-minor label; its operator channel then matches that version. Until registration and the version label are available, ODF is absent and ACM observability may wait for its object storage. Verify that acm and argo-registration exist immediately, then check registration and the version label if odf does not appear. An ApplicationSet success condition alone does not confirm that the expected Applications were generated.
+
+ODF installs into openshift-storage, which OLM allows only one OperatorGroup. The ODF app creates that group and never prunes it. On a hub that already has one there, for example from an LVMS install, label the local-cluster ManagedCluster ai-grid/odf-operatorgroup=existing so ODF uses it instead.
 
 [apps/argo-registration](../../../apps/argo-registration) registers every cluster in global with Argo CD, which on a combined hub acm-models does, so the default ApplicationSet skips it. The rhoai app installs RHOAI and the role's Grid gateways on each AI Grid site, as [apps/ai-grid-spokes](../../../apps/ai-grid-spokes) selects them by label and role.
 

@@ -1,33 +1,12 @@
 skipCrdCheck: true
 components:
-  kserve:
-    gateway:
-      gridModelClient:
-        # Fork divergence: the ai-grid-ingress profile's consumer gateway
-        # mounts the grid-model-client-token Secret, but the chart's "auto"
-        # only creates it when KServe is managed, and the ingress profile
-        # removes KServe. Without this, every ingress site's gateway stays in
-        # ContainerCreating (FailedMount: grid-model-client-token not found),
-        # its Deployment exceeds the progress deadline, and the whole rhoai
-        # release stalls on sync retries (GridSite stuck AwaitingDiscovery).
-        # Explicit true is a no-op on inference/combined sites, where auto
-        # already creates the ServiceAccount and token Secret.
-        create: true
-
-# Fork divergence (BYO GPU stack): the ZTP flow (ai-grid-policies,
-# aigrid-gpu-*-policy) installs NFD and the NVIDIA GPU operator on the GPU
-# sites at build time under its own OperatorGroups and Subscriptions. The
-# chart's dependencies would adopt those Subscriptions (flipping
-# installPlanApproval to Automatic) and create second OperatorGroups in the
-# same namespaces, leaving a latent TooManyOperatorGroups that breaks the
-# next CSV upgrade. ZTP owns the whole GPU stack here, so the chart must not
-# render it; prune of the chart's copies is safe because the running CSVs
-# were admitted under the ZTP OperatorGroups.
-dependencies:
-  nfd:
-    enabled: false
-  nvidiaGPUOperator:
-    enabled: false
+  aigateway:
+    modelsAsAService:
+      gateway:
+        name: maas-default-gateway
+        namespace: openshift-ingress
+        annotations:
+          ai-grid/maas-gateway-hostname-prefix: maas
 
 operator:
   type: rhoai
@@ -45,6 +24,24 @@ operator:
           # bypass ext_proc, so MaaS API calls stop failing); until the RHOAI 3.6 payload carries it.
           - name: RELATED_IMAGE_ODH_AI_GATEWAY_CONTROLLER_IMAGE
             value: quay.io/sbatsche/odh-ai-gateway-controller@sha256:3968ba3bf7037ae2eba0c6b9239c4b72ba50ef193fed987caf89649e49467015
+dependencies:
+  opentelemetry:
+    olm:
+      # Keep aligned with the cert-manager compatibility grant in apps/rhoai-prerequisites/hub/12-otel-cert-manager-policy.yaml.
+      namespace: openshift-opentelemetry-operator
+  # Fork divergence (BYO GPU stack): the ZTP flow (ai-grid-policies,
+  # aigrid-gpu-*-policy) installs NFD and the NVIDIA GPU operator on the GPU
+  # sites at build time under its own OperatorGroups and Subscriptions. The
+  # chart's dependencies would adopt those Subscriptions (flipping
+  # installPlanApproval to Automatic) and create second OperatorGroups in the
+  # same namespaces, leaving a latent TooManyOperatorGroups that breaks the
+  # next CSV upgrade. ZTP owns the whole GPU stack here, so the chart must not
+  # render it; prune of the chart's copies is safe because the running CSVs
+  # were admitted under the ZTP OperatorGroups.
+  nfd:
+    enabled: false
+  nvidiaGPUOperator:
+    enabled: false
 
 # The payload's Grid runtimes. Argo renders these charts, not the operator, so
 # they name the images the operator's payload ships.
