@@ -124,6 +124,14 @@ spec:
               - name: clusterNamespace
                 value: '{{ .name }}'
                 forceString: true
+              # Fork divergence: the MaaS Gateway exists only where MaaS
+              # runs (ingress or combined); skip the hostname policy on
+              # inference sites, where the chart would otherwise try to
+              # create an invalid partial Gateway. Remove when upstream
+              # gates the chart by role.
+              - name: enabled
+                value: '{{ ne (index .metadata.labels "ai-grid/role") "inference" | toString }}'
+                forceString: true
         - repoURL: https://github.com/RHsyseng/ai-grid-cluster-gitops.git
           targetRevision: main
           path: apps/rhoai/catalog
