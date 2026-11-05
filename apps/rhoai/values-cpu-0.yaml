@@ -1,0 +1,19 @@
+# Per-cluster overrides for cpu-0 (ai-grid/role=ingress). The rhoai
+# ApplicationSet merges this after apps/rhoai/values.yaml and the role
+# profile; absent for other clusters (ignoreMissingValueFiles).
+#
+# Expose cpu-0's MaaS Gateway through an OpenShift Route (ClusterIP service
+# + re-encrypt Route, the chart's components.aigateway.modelsAsAService.
+# gateway.openshiftRoute mode) instead of the default LoadBalancer, so the
+# lab's *.apps wildcard DNS reaches it through the router: no per-site DNS
+# record or dedicated MetalLB address is needed. The rhoai-maas-gateway-
+# hostname policy keeps patching the listener hostnames, which must match
+# this Route host. Per-cluster file because the host is the site's own
+# apps domain.
+components:
+  aigateway:
+    modelsAsAService:
+      gateway:
+        openshiftRoute:
+          enabled: true
+          host: maas.apps.cpu-0.aigrid.bos2.lab
