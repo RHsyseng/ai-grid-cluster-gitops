@@ -1,4 +1,34 @@
 skipCrdCheck: true
+components:
+  kserve:
+    gateway:
+      gridModelClient:
+        # Fork divergence: the ai-grid-ingress profile's consumer gateway
+        # mounts the grid-model-client-token Secret, but the chart's "auto"
+        # only creates it when KServe is managed, and the ingress profile
+        # removes KServe. Without this, every ingress site's gateway stays in
+        # ContainerCreating (FailedMount: grid-model-client-token not found),
+        # its Deployment exceeds the progress deadline, and the whole rhoai
+        # release stalls on sync retries (GridSite stuck AwaitingDiscovery).
+        # Explicit true is a no-op on inference/combined sites, where auto
+        # already creates the ServiceAccount and token Secret.
+        create: true
+
+# Fork divergence (BYO GPU stack): the ZTP flow (ai-grid-policies,
+# aigrid-gpu-*-policy) installs NFD and the NVIDIA GPU operator on the GPU
+# sites at build time under its own OperatorGroups and Subscriptions. The
+# chart's dependencies would adopt those Subscriptions (flipping
+# installPlanApproval to Automatic) and create second OperatorGroups in the
+# same namespaces, leaving a latent TooManyOperatorGroups that breaks the
+# next CSV upgrade. ZTP owns the whole GPU stack here, so the chart must not
+# render it; prune of the chart's copies is safe because the running CSVs
+# were admitted under the ZTP OperatorGroups.
+dependencies:
+  nfd:
+    enabled: false
+  nvidiaGPUOperator:
+    enabled: false
+
 operator:
   type: rhoai
   rhoai:
