@@ -32,8 +32,14 @@ spec:
           namespace: {{ $gateway.namespace }}
         spec:
           listeners:
-            - name: http
+            {{- /* Patch the hostname onto every listener the Gateway
+                   declares. The listener set comes from the values
+                   (apps/rhoai/values-<cluster>.yaml, where a site
+                   customizes it - e.g. https-only behind an OpenShift
+                   Route); fall back to the standard http+https pair. */ -}}
+            {{- $listeners := (($gateway.spec | default dict).listeners) | default (list (dict "name" "http") (dict "name" "https")) }}
+            {{- range $listener := $listeners }}
+            - name: {{ $listener.name }}
               hostname: '{{ $hostnamePrefix }}.{{ "{{" }} (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain {{ "}}" }}'
-            - name: https
-              hostname: '{{ $hostnamePrefix }}.{{ "{{" }} (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain {{ "}}" }}'
+            {{- end }}
 {{- end }}

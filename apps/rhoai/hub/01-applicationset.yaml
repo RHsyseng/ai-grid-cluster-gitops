@@ -118,8 +118,12 @@ spec:
           path: apps/rhoai/gateway-hostname
           helm:
             releaseName: rhoai-gateway-hostname
+            # The per-cluster file carries a site's listener overrides,
+            # which the policy patches hostnames onto.
+            ignoreMissingValueFiles: true
             valueFiles:
               - $values/apps/rhoai/values.yaml
+              - $values/apps/rhoai/values-{{ .name }}.yaml
             parameters:
               - name: clusterNamespace
                 value: '{{ .name }}'

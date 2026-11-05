@@ -17,3 +17,25 @@ components:
         openshiftRoute:
           enabled: true
           host: maas.apps.cpu-0.aigrid.bos2.lab
+        # https only: the chart's openshiftRoute mode sets TLS on every
+        # listener, and the Gateway API rejects tls on an HTTP-protocol
+        # listener, so the default http listener cannot stay. The Route
+        # redirects http to https (insecureEdgeTerminationPolicy:
+        # Redirect), so nothing is lost. Replaces the profile's
+        # http+https pair (Helm replaces lists wholesale).
+        spec:
+          listeners:
+            - name: https
+              port: 443
+              protocol: HTTPS
+              allowedRoutes:
+                namespaces:
+                  from: Selector
+                  selector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: In
+                        values:
+                          - openshift-ingress
+                          - models-as-a-service
+                          - redhat-ai-gateway-infra
