@@ -8,8 +8,16 @@
        A plain `if .Values.enabled | default true` does not work: Helm's
        default replaces the boolean false, so it can never disable. */ -}}
 {{- $enabled := .Values.enabled | toString -}}
-{{- if ne $enabled "false" }}
 {{- $gateway := .Values.components.aigateway.modelsAsAService.gateway }}
+{{- /* OpenShift Route exposure disables the policy: the reencrypt Route
+       terminates TLS at the router and dials the gateway with the
+       service-name SNI (or none), so a hostname on the listener becomes
+       an SNI filter chain envoy never matches (filter_chain_not_found,
+       router 503). The Route's own host is the stable name in that mode,
+       and the HTTPRoutes route by Host header on a hostname-less
+       listener. */ -}}
+{{- $routeMode := (($gateway.openshiftRoute | default dict).enabled) | toString -}}
+{{- if and (ne $enabled "false") (ne $routeMode "true") }}
 {{- $hostnamePrefix := index $gateway.annotations "ai-grid/maas-gateway-hostname-prefix" }}
 {{- if not $hostnamePrefix }}{{ fail "components.aigateway.modelsAsAService.gateway.annotations.ai-grid/maas-gateway-hostname-prefix is required" }}{{ end }}
 apiVersion: policy.open-cluster-management.io/v1
