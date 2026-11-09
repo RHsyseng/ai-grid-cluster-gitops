@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/RHsyseng/ai-grid-cluster-gitops.git
     targetRevision: main
-    path: apps/keycloak
+    path: apps/keycloak/overlays/default
   destination:
     server: https://kubernetes.default.svc
     namespace: maas-db

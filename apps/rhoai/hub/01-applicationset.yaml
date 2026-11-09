@@ -52,7 +52,7 @@ spec:
           ref: values
         # Immutable OCI snapshot from the 3.6.0 dev channel.
         - repoURL: oci://ghcr.io/opendatahub-io/odh-gitops/rhai-on-openshift-chart
-          targetRevision: 3.6.0-dev.13.1
+          targetRevision: 3.6.0-dev.29.1
           path: .
           helm:
             releaseName: rhai-on-openshift
@@ -128,13 +128,15 @@ spec:
               - name: clusterNamespace
                 value: '{{ .name }}'
                 forceString: true
-              # Fork divergence: the MaaS Gateway exists only where MaaS
-              # runs (ingress or combined); skip the hostname policy on
-              # inference sites, where the chart would otherwise try to
-              # create an invalid partial Gateway. Remove when upstream
-              # gates the chart by role.
+              # An inference-only site has no MaaS Gateway: the chart renders nothing there.
+              # Fork divergence: our gateway-hostname chart gates on "enabled" (computed
+              # from the role here) rather than "role"; keep both parameters so the
+              # appset matches upstream's shape and feeds either chart version.
               - name: enabled
                 value: '{{ ne (index .metadata.labels "ai-grid/role") "inference" | toString }}'
+                forceString: true
+              - name: role
+                value: '{{ index .metadata.labels "ai-grid/role" }}'
                 forceString: true
         - repoURL: https://github.com/RHsyseng/ai-grid-cluster-gitops.git
           targetRevision: main

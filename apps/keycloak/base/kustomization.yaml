@@ -9,12 +9,19 @@ resources:
   - manifests/redirect-uris.yaml
   - manifests/keycloak.yaml
   - manifests/route.yaml
+  - manifests/saas-realm-sync.yaml
 configMapGenerator:
+  # Realms imported only when they don't exist (kc.sh import --override false).
   - name: keycloak-realm-import
     options:
       annotations:
         argocd.argoproj.io/sync-wave: "2"
     files:
       - manifests/realms/saas-realm.json
-      - manifests/realms/grid-tenant-1-idp-realm.json
-      - manifests/realms/grid-tenant-2-idp-realm.json
+  - name: keycloak-realm-scripts
+    options:
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    files:
+      - manifests/scripts/render-realm.sh
+      - manifests/scripts/sync-saas-realm.py

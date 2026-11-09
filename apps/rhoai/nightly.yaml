@@ -2,14 +2,7 @@
 # Consumed as the values file for apps/rhoai/catalog by the rhoai Application.
 # Requires the quay.io/rhoai prerequisites distributed by
 # apps/rhoai-prerequisites, including the catalog namespace pull secret.
-#
-# Fork divergence: pinned to the 9f96b1f digest, the payload proven
-# end-to-end here (GridSites Connected=True, signals polling healthy).
-# The next digest, c0df098 (#233), regressed the grid signals transport
-# (peer poll "client error (SendRequest)", GridSite Connected=False
-# (TLSProtocolError) on every site) - the same class as the v0.3.0-rc.4
-# regression. Bump this only to a digest verified to fix it.
 image:
   registry: quay.io
   repository: rhoai/rhoai-fbc-fragment
-  tag: rhoai-3.6@sha256:9f96b1f67b3270c93cd50508e9f00d5833fb0d0657d8679b29862f5b94561791
+  tag: rhoai-3.6@sha256:12492ed57c0300ad0e116185a281bfeae7b0e63f2fee3b5c5e71a8192ef2c928

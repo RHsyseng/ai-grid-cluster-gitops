@@ -26,26 +26,25 @@
         {
           "name": "MaaS tenant groups",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-group-membership-mapper",
           "config": {
-            "user.attribute": "maas_groups",
             "claim.name": "groups",
-            "jsonType.label": "String",
-            "multivalued": "true",
+            "full.path": "false",
             "id.token.claim": "true",
             "userinfo.token.claim": "true",
             "access.token.claim": "false"
           }
         },
         {
-          "name": "MaaS organization transport",
+          "name": "MaaS roles",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
           "config": {
-            "user.attribute": "maas_orgs_json",
-            "claim.name": "https://redhat\\.com/maas/orgs",
+            "usermodel.clientRoleMapping.clientId": "saas-broker",
+            "usermodel.clientRoleMapping.rolePrefix": "",
+            "claim.name": "roles",
             "jsonType.label": "String",
-            "multivalued": "false",
+            "multivalued": "true",
             "id.token.claim": "true",
             "userinfo.token.claim": "true",
             "access.token.claim": "false"
@@ -88,17 +87,21 @@
       }
     ]
   },
-  "groups": [
-    {
-      "name": "42c3e46f-2477-44d7-a85b-d3b43f6b31fa",
-      "subGroups": [
-        { "name": "ai-grid-admins" },
-        { "name": "ai-grid-users" }
+  "roles": {
+    "client": {
+      "saas-broker": [
+        { "name": "admins", "description": "Administers the organization in AI Grid: sent in the roles claim." },
+        { "name": "users", "description": "Uses the organization's models in AI Grid: sent in the roles claim." }
       ]
     }
+  },
+  "groups": [
+    { "name": "ai-grid-admins" },
+    { "name": "ai-grid-users" }
   ],
   "users": [
     {
+      "id": "e58c353f-daf3-5cec-bb71-7163c2deb1b1",
       "username": "alice",
       "email": "alice@grid-tenant-1.test",
       "emailVerified": true,
@@ -106,17 +109,12 @@
       "firstName": "Alice",
       "lastName": "Tenant",
       "groups": [
-        "/42c3e46f-2477-44d7-a85b-d3b43f6b31fa/ai-grid-admins",
-        "/42c3e46f-2477-44d7-a85b-d3b43f6b31fa/ai-grid-users"
+        "/ai-grid-admins",
+        "/ai-grid-users"
       ],
-      "attributes": {
-        "maas_groups": [
-          "42c3e46f-2477-44d7-a85b-d3b43f6b31fa/ai-grid-admins",
-          "42c3e46f-2477-44d7-a85b-d3b43f6b31fa/ai-grid-users"
-        ],
-        "maas_orgs_json": [
-          "[{\"organization_id\":\"42c3e46f-2477-44d7-a85b-d3b43f6b31fa\",\"roles\":[\"admins\"]}]"
-        ]
+      "clientRoles": {
+        "saas-broker": ["admins"],
+        "realm-management": ["view-users", "query-users", "query-groups", "query-clients", "manage-users"]
       },
       "credentials": [
         {

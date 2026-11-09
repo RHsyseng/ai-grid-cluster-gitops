@@ -9,6 +9,10 @@ metadata:
     app.kubernetes.io/name: keycloak
 spec:
   replicas: 1
+  # Every realm is imported only when it doesn't exist, so a new pod changes
+  # no realm while the old one serves: roll without a gap.
+  strategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app.kubernetes.io/name: keycloak
@@ -26,35 +30,30 @@ spec:
             - -c
           args:
             - |
-              set -euo pipefail
+              set -Eeuo pipefail
 
-              render_realm() {
-                local line
-                while IFS= read -r line || [[ -n "$line" ]]; do
-                  line=${line//\$\{KEYCLOAK_CLIENT_ID\}/$KEYCLOAK_CLIENT_ID}
-                  line=${line//\$\{KEYCLOAK_HOME_URL\}/$KEYCLOAK_HOME_URL}
-                  line=${line//\$\{KEYCLOAK_PUBLIC_URL\}/$KEYCLOAK_PUBLIC_URL}
-                  line=${line//\$\{KEYCLOAK_REDIRECT_URI\}/$KEYCLOAK_REDIRECT_URI}
-                  line=${line//\$\{KEYCLOAK_CLIENT_SECRET\}/$KEYCLOAK_CLIENT_SECRET}
-                  line=${line//\$\{KEYCLOAK_REDIRECT_URIS_CLIENT_SECRET\}/$KEYCLOAK_REDIRECT_URIS_CLIENT_SECRET}
-                  line=${line//\$\{GRID_TENANT_1_BROKER_CLIENT_SECRET\}/$GRID_TENANT_1_BROKER_CLIENT_SECRET}
-                  line=${line//\$\{GRID_TENANT_2_BROKER_CLIENT_SECRET\}/$GRID_TENANT_2_BROKER_CLIENT_SECRET}
-                  line=${line//\$\{GRID_TENANT_1_TEST_USER_PASSWORD\}/$GRID_TENANT_1_TEST_USER_PASSWORD}
-                  line=${line//\$\{GRID_TENANT_2_TEST_USER_PASSWORD\}/$GRID_TENANT_2_TEST_USER_PASSWORD}
-              line=${line//\$\{KEYCLOAK_SIGNING_KEYSTORE_PASSWORD\}/$KEYCLOAK_SIGNING_KEYSTORE_PASSWORD}
-                  printf '%s\n' "$line"
+              # keycloak-realm-import holds every realm, imported only when it
+              # doesn't exist (create-only): saas and the example tenant IdP
+              # realms hold runtime data (organizations, users, groups) that
+              # must survive a restart. keycloak-saas-realm-sync applies Git
+              # edits to saas.
+              render_dir() {
+                local source_dir=$1 target_dir=$2 source
+                mkdir -p "$target_dir"
+                for source in "$source_dir"/*.json; do
+                  [[ -e "$source" ]] || continue
+                  bash /opt/keycloak/realm-scripts/render-realm.sh < "$source" > "$target_dir/$(basename "$source")"
                 done
               }
 
-              for source in /opt/keycloak/realm-import-source/*.json; do
-                target="/opt/keycloak/data/import/$(basename "$source")"
-                render_realm < "$source" > "$target"
-              done
+              render_dir /opt/keycloak/realm-import-source /opt/keycloak/data/import/create-only
           envFrom:
             - secretRef:
                 name: keycloak-secrets
             - secretRef:
                 name: keycloak-redirect-uris-secret
+            - secretRef:
+                name: keycloak-realm-sync-secret
             - configMapRef:
                 name: keycloak-public-url
           env:
@@ -67,6 +66,9 @@ spec:
             - name: realm-import-source
               mountPath: /opt/keycloak/realm-import-source
               readOnly: true
+            - name: realm-scripts
+              mountPath: /opt/keycloak/realm-scripts
+              readOnly: true
             - name: realm-import
               mountPath: /opt/keycloak/data/import
       containers:
@@ -78,7 +80,8 @@ spec:
             - -c
           args:
             - |
-              /opt/keycloak/bin/kc.sh import --dir /opt/keycloak/data/import --override true
+              set -Eeuo pipefail
+              /opt/keycloak/bin/kc.sh import --dir /opt/keycloak/data/import/create-only --override false
               exec /opt/keycloak/bin/kc.sh start
           ports:
             - name: http
@@ -152,12 +155,6 @@ spec:
             - name: saas-signing-key
               mountPath: /opt/keycloak/data/saas
               readOnly: true
-            - name: grid-tenant-1-idp-signing-key
-              mountPath: /opt/keycloak/data/grid-tenant-1-idp
-              readOnly: true
-            - name: grid-tenant-2-idp-signing-key
-              mountPath: /opt/keycloak/data/grid-tenant-2-idp
-              readOnly: true
             - name: realm-import
               mountPath: /opt/keycloak/data/import
               readOnly: true
@@ -171,23 +168,17 @@ spec:
             items:
               - key: keystore.jks
                 path: keystore.jks
-        - name: grid-tenant-1-idp-signing-key
-          secret:
-            secretName: keycloak-grid-tenant-1-idp-signing
-            items:
-              - key: keystore.jks
-                path: keystore.jks
-        - name: grid-tenant-2-idp-signing-key
-          secret:
-            secretName: keycloak-grid-tenant-2-idp-signing
-            items:
-              - key: keystore.jks
-                path: keystore.jks
         - name: realm-import-source
           configMap:
             name: keycloak-realm-import
+        - name: realm-scripts
+          configMap:
+            name: keycloak-realm-scripts
+        # The rendered realm files hold client secrets: keep them off the node's disk.
         - name: realm-import
-          emptyDir: {}
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
 ---
 apiVersion: v1
 kind: Service
