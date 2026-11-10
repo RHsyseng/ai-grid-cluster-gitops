@@ -31,7 +31,11 @@ spec:
     tls:
       caName: openshift-service-ca-bundle
       caKey: service-ca.crt
-  storageClassName: gp3-csi
+  # Fork divergence (BYO ODF): the dedicated hub has no gp3-csi (an AWS class);
+  # its ZTP-installed ODF provides ocs-storagecluster-ceph-rbd as the default.
+  # Upstream hardcodes gp3-csi, which leaves the Loki PVCs Pending here
+  # (RHAI-20050; upstream PR #171 makes this an input).
+  storageClassName: ocs-storagecluster-ceph-rbd
   tenants:
     mode: openshift-logging
   managementState: Managed
