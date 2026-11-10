@@ -2,15 +2,7 @@
 # Consumed as the values file for apps/rhoai/catalog by the rhoai Application.
 # Requires the quay.io/rhoai prerequisites distributed by
 # apps/rhoai-prerequisites, including the catalog namespace pull secret.
-#
-# Fork divergence (payload pin): held at 12492ed, the last known-good nightly.
-# Upstream's d0ee30a ships a kserve-module controller whose ModelCache cutover
-# repeatedly deletes the shared kserve-leader-election-role, so the main KServe
-# controller never holds its lease and the DataScienceCluster never goes Ready
-# (RHOAIENG-103272; fix opendatahub-io/kserve#2175, not yet merged). Bump this
-# forward once a nightly carries that fix. See the digest A/B history in the
-# session handoff: 9f96b1f good, c0df098 bad, 12492ed good, d0ee30a bad.
 image:
   registry: quay.io
   repository: rhoai/rhoai-fbc-fragment
-  tag: rhoai-3.6@sha256:12492ed57c0300ad0e116185a281bfeae7b0e63f2fee3b5c5e71a8192ef2c928
+  tag: rhoai-3.6@sha256:add544e29cf526546b83756e7decc7d664d1288f4099fceae6d2b7f2679d42e3
