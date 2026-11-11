@@ -1,14 +1,15 @@
-# Registers the custom fleet ScrapeConfigs (addon-scrapeconfigs.yaml) on
+# Registers this fleet's custom ScrapeConfigs (addon-scrapeconfigs.yaml) on
 # the multicluster observability add-on's ClusterManagementAddOn, so its
 # PrometheusAgents on the spokes federate the metrics they name.
 #
 # A Sync hook, run by this app after the MultiClusterObservability (sync
-# wave 5) applies: the MCO operator then deploys the add-on manager and
-# creates the ClusterManagementAddOn asynchronously, so the job waits for
-# it rather than assuming it exists at sync time. Everything it touches is
-# deployed by this app or by the operator that app configures — no
-# dependency on other Applications. Idempotent: safe on every sync.
-# Follows the pattern of observability-bridge-job.yaml.
+# wave 5) and the CMA (clustermanagementaddon.yaml, also wave 5) apply. The
+# MCO operator then deploys the add-on manager and creates the default
+# PrometheusAgents asynchronously, so the job waits for the CMA rather than
+# assuming it exists at sync time. Everything it touches is deployed by
+# this app or by the operator that app configures — no dependency on other
+# Applications. Idempotent: safe on every sync. Follows the pattern of
+# observability-bridge-job.yaml.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -69,19 +70,22 @@ spec:
               set -euo pipefail
 
               CMA=multicluster-observability-addon
+              OBS_NS=open-cluster-management-observability
 
-              # The MCO operator creates the ClusterManagementAddOn
-              # asynchronously after the MultiClusterObservability's
-              # capabilities apply. Bounded wait, in-app dependency only.
-              for _ in $(seq 1 90); do
+              # The CMA is applied by this app (clustermanagementaddon.yaml,
+              # sync wave 5), before this hook (wave 6). A brief wait covers
+              # the sync-wave boundary; a long wait is not needed.
+              for _ in $(seq 1 12); do
                 oc get clustermanagementaddon "$CMA" >/dev/null 2>&1 && break
-                sleep 10
+                sleep 5
               done
               oc get clustermanagementaddon "$CMA" >/dev/null 2>&1 || {
-                echo "ERROR: $CMA did not appear within 15 minutes of the MCO capabilities" >&2
+                echo "ERROR: $CMA not found — was clustermanagementaddon.yaml synced?" >&2
                 exit 1
               }
 
+              # Register the custom fleet ScrapeConfigs on the add-on's
+              # first placement.
               register() {
                 local name=$1
                 if oc get clustermanagementaddon "$CMA" -o json | grep -q "\"name\": \"${name}\""; then
@@ -89,9 +93,12 @@ spec:
                   return 0
                 fi
                 oc patch clustermanagementaddon "$CMA" --type=json \
-                  -p="[{\"op\":\"add\",\"path\":\"/spec/installStrategy/placements/0/configs/-\",\"value\":{\"group\":\"monitoring.rhobs\",\"resource\":\"scrapeconfigs\",\"name\":\"${name}\",\"namespace\":\"open-cluster-management-observability\"}}]"
+                  -p="[{\"op\":\"add\",\"path\":\"/spec/installStrategy/placements/0/configs/-\",\"value\":{\"group\":\"monitoring.rhobs\",\"resource\":\"scrapeconfigs\",\"name\":\"${name}\",\"namespace\":\"$OBS_NS\"}}]"
                 echo "Registered ScrapeConfig ${name} on the add-on"
               }
 
               register custom-dcgm-gpu-metrics
               register custom-maas-workload-metrics
+
+              # Verify the add-on is being installed on the placement's clusters.
+              oc get clustermanagementaddon "$CMA" -o jsonpath='{.status.installProgressions[0].conditions[0].message}{"\n"}'

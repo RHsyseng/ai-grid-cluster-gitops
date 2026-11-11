@@ -5,13 +5,20 @@ kind: Kustomization
 # not this repo. Including core/ here created a second ACM OperatorGroup and
 # Subscription in open-cluster-management, leaving the CSV in
 # TooManyOperatorGroups and stalling the whole Submariner chain. Search is
-# likewise ZTP-owned. MultiClusterObservability, however, is synced from
-# here: upstream's observability/ manifests carry the multicluster
-# observability add-on (capabilities incl. the Perses ui), the OBC and the
-# thanos bridge, and the ZTP flow only installs the operator prerequisites
-# (COO, via 09_coo_subscription.yaml) rather than the MCO itself. Only
-# core/ and search/ stay ZTP-owned. Deliberate fork divergence until
-# upstream supports BYO RHACM (issue #183).
+# likewise ZTP-owned. Two exceptions from core/ are synced here:
+# - policy-addons.yaml (governance add-on CMAs with installStrategy
+#   Placements), because add-on management must be repo-owned, matching the
+#   mcoa CMA in observability/clustermanagementaddon.yaml. The legacy
+#   KlusterletAddonConfig path (still used between spoke creation and the
+#   bootstrap by the ClusterInstance flow) and the placement-managed CMAs
+#   agree on the same desired state, so they coexist.
+# - MultiClusterObservability, from upstream's observability/ manifests:
+#   they carry the multicluster observability add-on (capabilities incl.
+#   the Perses ui), the OBC and the thanos bridge. The ZTP flow only
+#   installs the operator prerequisites (COO, via 09_coo_subscription.yaml,
+#   and the pull secret via 07_enable_acm_observability.sh).
+# Deliberate fork divergence until upstream supports BYO RHACM (issue #183).
 resources:
+  - core/policy-addons.yaml
   - observability
   - submariner

@@ -1,0 +1,66 @@
+# The multicluster observability add-on's ClusterManagementAddOn, completed.
+#
+# The MCO operator carries this spec as its own render template
+# (operators/multiclusterobservability/manifests/base/multicluster-observability-addon/
+# cluster_management_addon.yaml in stolostron/multicluster-observability-operator,
+# release-2.17) and renders it once, then skips the resource if it already
+# exists — "MCO creates this resource on first deploy, then allows users to
+# manage it". The mcoa addon-manager, deployed when the MCO capabilities
+# enable, also creates the CMA when it finds none — as a bare skeleton with
+# installStrategy.type left at the API default Manual ("no automatic
+# install"), no supportedConfigs and no AddOnDeploymentConfig, so the add-on
+# never deploys (discovered live: whichever component wins the race on a
+# fresh hub decides whether the add-on works at all).
+#
+# This manifest is the operator's template, owned by this repo instead — the
+# same pattern apps/acm/manifests/core/policy-addons.yaml uses for the
+# governance add-ons. Applied at bootstrap, it pre-empts the race: the
+# renderer's skip-if-exists is satisfied by the intended spec, and the
+# addon-manager only adds its default PrometheusAgents to the placement.
+#
+# The placement's configs are deliberately omitted: the mcoa addon-manager
+# owns that list (it server-side applies the default PrometheusAgents, and
+# register-scrapeconfigs-job.yaml adds this fleet's ScrapeConfigs).
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ClusterManagementAddOn
+metadata:
+  name: multicluster-observability-addon
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    # Opts the CMA into the OCM addon-manager-controller's automatic
+    # deployment (part of the operator's template).
+    addon.open-cluster-management.io/lifecycle: addon-manager
+spec:
+  addOnMeta:
+    displayName: Multicluster Observability Addon
+    description: "multicluster-observability-addon is the addon to configure spoke clusters to collect and forward logs/traces to a given set of outputs"
+  supportedConfigs:
+    # The add-on's AddOnDeploymentConfig: without a defaultConfig reference
+    # here (or in the placement configs), every ManagedClusterAddOn fails
+    # with "missing required AddOnDeploymentConfig reference in addon
+    # configuration" and ships no agent.
+    - group: addon.open-cluster-management.io
+      resource: addondeploymentconfigs
+      defaultConfig:
+        name: multicluster-observability-addon
+        namespace: open-cluster-management-observability
+    - group: observability.openshift.io
+      resource: clusterlogforwarders
+    - group: opentelemetry.io
+      resource: opentelemetrycollectors
+    - group: opentelemetry.io
+      resource: instrumentations
+    - group: monitoring.coreos.com
+      resource: prometheusagents
+    - group: monitoring.coreos.com
+      resource: scrapeconfigs
+    - group: monitoring.coreos.com
+      resource: prometheusrules
+  installStrategy:
+    # Placements, not the API default Manual: Manual means no automatic
+    # install, and the addon-manager-controller ignores the placements
+    # however many clusters they select.
+    type: Placements
+    placements:
+      - name: global
+        namespace: open-cluster-management-global-set
