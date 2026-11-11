@@ -29,6 +29,27 @@ metadata:
 spec:
   replicas: 1
   image: registry.redhat.io/cluster-observability-operator/perses-rhel9@sha256:f2cffebadddf00f16e89a471e37e25dcf5cd060918de9c2074640b646607ee76
+  # TLS with an OpenShift service-serving certificate: the service-ca
+  # operator issues the cert into the annotated secret, and the
+  # perses-operator mounts it (spec.tls.userCert — despite the name, it is
+  # the SERVER certificate: the operator adds --web.tls-cert-file and
+  # --web.tls-key-file) so the server answers https. The console's bff
+  # refuses plaintext Perses URLs (the caller's token travels on every
+  # request) and trusts the service CA by default
+  # (PERSES_CA_FILE=.../service-ca.crt), so it verifies this certificate
+  # with no extra configuration. This mirrors what the COO operator's
+  # Perses does on RHOAI hubs (apps/console's Monitoring page expects it).
+  service:
+    annotations:
+      service.beta.openshift.io/serving-cert-secret-name: ai-grid-perses-tls
+  tls:
+    enable: true
+    userCert:
+      type: secret
+      name: ai-grid-perses-tls
+      namespace: redhat-ods-monitoring
+      certPath: tls.crt
+      privateKeyPath: tls.key
   # Mirrors the config RHOAI's Monitoring CR renders on the sites
   # (data-science-perses). Required: without a valid config the
   # perses-operator renders an empty one and never creates the workload.
