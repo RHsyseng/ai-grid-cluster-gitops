@@ -39,8 +39,15 @@ spec:
             # The Monitoring page: its tabs are the dashboard-* PersesDashboards in
             # one project, here OpenShift AI's, served by the Cluster Observability
             # Operator's Perses on the hub.
+            #
+            # Fork divergence (dedicated hub): upstream's URL expects the Perses
+            # that RHOAI's platform layer creates in the COO operator namespace
+            # on hubs that run RHOAI. This hub runs no RHOAI, so the o11y app's
+            # ai-grid instance serves the same project instead (see
+            # apps/ai-grid-o11y/manifests/perses-ai-grid.yaml). Plain http: the
+            # instance has no TLS and the traffic stays in-cluster.
             perses:
-              url: https://perses.openshift-cluster-observability-operator.svc:8080
+              url: http://ai-grid.redhat-ods-monitoring.svc.cluster.local:8080
               project: redhat-ods-monitoring
           backend:
             # Add to AI Grid and Remove patch ManagedCluster labels. The chart's
