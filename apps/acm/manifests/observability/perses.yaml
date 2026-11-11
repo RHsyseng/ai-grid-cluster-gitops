@@ -1,0 +1,107 @@
+# The Perses instance the provider console's Monitoring page reads
+# (console.perses.url in apps/console/application.yaml:
+# https://perses.openshift-cluster-observability-operator.svc:8080, project
+# redhat-ods-monitoring). Nothing else creates it: not this repo, not the
+# multicluster observability add-on's ui capability, not COO (which only
+# reconciles Perses CRs), not RHOAI's platform layer (whose Monitoring CR
+# creates data-science-perses in redhat-ods-monitoring on RHOAI clusters,
+# a different instance and namespace) — on the reference environment it is
+# an out-of-band, undocumented step. This manifests it.
+#
+# The dashboards it serves are the dashboard-* PersesDashboards and the
+# PersesDatasources in redhat-ods-monitoring (apps/ai-grid-o11y): the
+# perses-operator pushes every PersesDashboard/PersesDatasource whose
+# instanceSelector is empty to every Perses instance, cluster-wide, into a
+# project named after the CR's namespace.
+#
+# Prerequisites: the Cluster Observability Operator (its perses-operator
+# reconciles this CR; ZTP installs COO before the GitOps bootstrap), and the
+# namespace's SCC annotation (below, in 09_coo_subscription.yaml in the ZTP
+# repo): the perses-operator pins fsGroup 65534, which a plain Namespace
+# with no SCC group allocation rejects under restricted-v2.
+apiVersion: perses.dev/v1alpha2
+kind: Perses
+metadata:
+  name: perses
+  namespace: openshift-cluster-observability-operator
+spec:
+  replicas: 1
+  # The productized image, the same digest RHOAI's Monitoring CR uses on
+  # the sites: the perses-operator's default is the community
+  # docker.io/persesdev/perses, which lacks the Red Hat Loki plugins the
+  # usage-logs dashboard uses (LokiLabelValuesVariable) and is unreachable
+  # on a disconnected hub.
+  image: registry.redhat.io/cluster-observability-operator/perses-rhel9@sha256:f2cffebadddf00f16e89a471e37e25dcf5cd060918de9c2074640b646607ee76
+  # Mirrors the config RHOAI's Monitoring CR renders (data-science-perses).
+  # Required: without a valid config the perses-operator renders an empty
+  # one and never creates the workload.
+  config:
+    dashboard: {}
+    database:
+      file:
+        case_sensitive: false
+        extension: yaml
+        folder: /perses
+    datasource:
+      disable_local: false
+      global:
+        disable: false
+      project:
+        disable: false
+    ephemeral_dashboard:
+      cleanup_interval: 1s
+      enable: true
+    frontend:
+      disable: false
+      explorer:
+        enable: false
+    plugin:
+      enable_dev: false
+    provisioning: {}
+  # No storage override: a file database without emptyDir becomes a
+  # StatefulSet with a PVC (the namespace's default storage class), so the
+  # pushed dashboards survive pod restarts. With emptyDir every restart
+  # empties the server and the perses-operator does not re-push until a
+  # PersesDashboard/PersesDatasource changes.
+  # TLS with an OpenShift service-serving certificate: the service-ca
+  # operator issues the cert into the annotated secret and the
+  # perses-operator mounts it (spec.tls.userCert — despite the name, the
+  # SERVER certificate: the operator adds --web.tls-cert-file and
+  # --web.tls-key-file). The console's bff refuses plaintext Perses URLs
+  # (the caller's token travels on every request) and verifies this
+  # certificate with its default PERSES_CA_FILE, the service CA.
+  service:
+    annotations:
+      service.beta.openshift.io/serving-cert-secret-name: perses-tls
+  tls:
+    enable: true
+    userCert:
+      type: secret
+      name: perses-tls
+      namespace: openshift-cluster-observability-operator
+      certPath: tls.crt
+      privateKeyPath: tls.key
+  # The operator's OWN client connection to this server: it pushes the
+  # dashboards and datasources over the service URL and must verify the
+  # same service-CA certificate. spec.client.tls (distinct from the
+  # server-side spec.tls above) reads the CA from the ConfigMap below,
+  # whose annotation makes OpenShift inject the service CA bundle.
+  client:
+    tls:
+      enable: true
+      caCert:
+        type: configmap
+        name: perses-service-ca
+        namespace: openshift-cluster-observability-operator
+        certPath: service-ca.crt
+---
+# The service CA bundle for the perses-operator's client verification
+# (spec.client.tls.caCert above). The inject-cabundle annotation makes
+# OpenShift's service-ca operator keep the service-ca.crt key current.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: perses-service-ca
+  namespace: openshift-cluster-observability-operator
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"

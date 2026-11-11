@@ -5,9 +5,3 @@ metadata:
   name: redhat-ods-monitoring
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
-    # The COO perses-operator hardcodes fsGroup 65534 on the Perses pod
-    # (perses-ai-grid.yaml). Plain Namespace objects carry no SCC group
-    # allocation, so restricted-v2 rejects that fsGroup unless the allowed
-    # group is named here. Drop this once the operator stops pinning the
-    # fsGroup or defaults to the productized image with a valid one.
-    openshift.io/sa.scc.supplemental-groups: "65534/1"

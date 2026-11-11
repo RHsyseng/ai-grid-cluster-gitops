@@ -1,0 +1,97 @@
+# Registers the custom fleet ScrapeConfigs (addon-scrapeconfigs.yaml) on
+# the multicluster observability add-on's ClusterManagementAddOn, so its
+# PrometheusAgents on the spokes federate the metrics they name.
+#
+# A Sync hook, run by this app after the MultiClusterObservability (sync
+# wave 5) applies: the MCO operator then deploys the add-on manager and
+# creates the ClusterManagementAddOn asynchronously, so the job waits for
+# it rather than assuming it exists at sync time. Everything it touches is
+# deployed by this app or by the operator that app configures — no
+# dependency on other Applications. Idempotent: safe on every sync.
+# Follows the pattern of observability-bridge-job.yaml.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: addon-scrapeconfig-registrar
+  namespace: open-cluster-management-observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: addon-scrapeconfig-registrar
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+rules:
+  - apiGroups: ["addon.open-cluster-management.io"]
+    resources: ["clustermanagementaddons"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: addon-scrapeconfig-registrar
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: addon-scrapeconfig-registrar
+subjects:
+  - kind: ServiceAccount
+    name: addon-scrapeconfig-registrar
+    namespace: open-cluster-management-observability
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: register-addon-scrapeconfigs
+  namespace: open-cluster-management-observability
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: addon-scrapeconfig-registrar
+      restartPolicy: Never
+      containers:
+        - name: register
+          image: registry.redhat.io/openshift4/ose-cli
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+
+              CMA=multicluster-observability-addon
+
+              # The MCO operator creates the ClusterManagementAddOn
+              # asynchronously after the MultiClusterObservability's
+              # capabilities apply. Bounded wait, in-app dependency only.
+              for _ in $(seq 1 90); do
+                oc get clustermanagementaddon "$CMA" >/dev/null 2>&1 && break
+                sleep 10
+              done
+              oc get clustermanagementaddon "$CMA" >/dev/null 2>&1 || {
+                echo "ERROR: $CMA did not appear within 15 minutes of the MCO capabilities" >&2
+                exit 1
+              }
+
+              register() {
+                local name=$1
+                if oc get clustermanagementaddon "$CMA" -o json | grep -q "\"name\": \"${name}\""; then
+                  echo "ScrapeConfig ${name} is already registered on the add-on"
+                  return 0
+                fi
+                oc patch clustermanagementaddon "$CMA" --type=json \
+                  -p="[{\"op\":\"add\",\"path\":\"/spec/installStrategy/placements/0/configs/-\",\"value\":{\"group\":\"monitoring.rhobs\",\"resource\":\"scrapeconfigs\",\"name\":\"${name}\",\"namespace\":\"open-cluster-management-observability\"}}]"
+                echo "Registered ScrapeConfig ${name} on the add-on"
+              }
+
+              register custom-dcgm-gpu-metrics
+              register custom-maas-workload-metrics

@@ -1,0 +1,61 @@
+# Custom metrics for the multicluster observability add-on.
+#
+# Replaces the legacy observability-metrics-custom-allowlist ConfigMap,
+# which the add-on does not read (RHACM 2.17 docs: "Adding custom metrics
+# for the multicluster observability add-on"). Each ScrapeConfig federates
+# the named metrics from a spoke's Prometheus via /federate; the add-on
+# ships them to the hub's PrometheusAgent for remote-write.
+#
+#   platform-metrics-collector   the add-on sets scrapeClass and targets to
+#                                federate from the spoke's platform Prometheus.
+#   user-workload-metrics-collector  targets the user-workload endpoint.
+#
+# The AI Grid's ai-grid-o11y Application deploys its own ScrapeConfigs in this
+# namespace for the RHOAI MonitoringStack federation; these two cover the
+# fleet-dashboard metrics the ZTP layer collected with the legacy allowlist.
+#
+# Registered on the ClusterManagementAddOn by 07_enable_acm_observability.sh.
+apiVersion: monitoring.rhobs/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: custom-dcgm-gpu-metrics
+  namespace: open-cluster-management-observability
+  labels:
+    app.kubernetes.io/component: platform-metrics-collector
+spec:
+  jobName: custom-dcgm
+  metricsPath: /federate
+  # Near-realtime for the fleet dashboard, as the legacy
+  # observabilityAddonSpec.interval: 30 provided.
+  scrapeInterval: 30s
+  params:
+    match[]:
+      - '{__name__="DCGM_FI_DEV_GPU_UTIL"}'
+      - '{__name__="DCGM_FI_DEV_GPU_TEMP"}'
+      - '{__name__="DCGM_FI_DEV_POWER_USAGE"}'
+      - '{__name__="DCGM_FI_DEV_FB_USED"}'
+      - '{__name__="DCGM_FI_DEV_FB_FREE"}'
+      - '{__name__="DCGM_FI_DEV_MEM_COPY_UTIL"}'
+---
+apiVersion: monitoring.rhobs/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: custom-maas-workload-metrics
+  namespace: open-cluster-management-observability
+  labels:
+    app.kubernetes.io/component: user-workload-metrics-collector
+spec:
+  jobName: custom-maas
+  metricsPath: /federate
+  scrapeInterval: 30s
+  params:
+    match[]:
+      # vLLM inference
+      - '{__name__=~"vllm:.*"}'
+      # MaaS: Limitador and Authorino
+      - '{__name__="authorized_hits"}'
+      - '{__name__="authorized_calls"}'
+      - '{__name__="limited_calls"}'
+      - '{__name__="limitador_up"}'
+      # Praxis gateway
+      - '{__name__=~"praxis_.*"}'

@@ -1,3 +1,9 @@
+# Fork additions to upstream's kustomization: perses.yaml (the console's
+# Perses instance — an undocumented prerequisite nothing else creates),
+# addon-scrapeconfigs.yaml and register-scrapeconfigs-job.yaml (this
+# fleet's custom metrics: DCGM GPU and MaaS workloads, registered on the
+# add-on by the Sync-hook job). The five upstream resources below are
+# unmodified.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -6,3 +12,6 @@ resources:
   - obc.yaml
   - observability-bridge-job.yaml
   - observability-bridge-rbac.yaml
+  - perses.yaml
+  - addon-scrapeconfigs.yaml
+  - register-scrapeconfigs-job.yaml
