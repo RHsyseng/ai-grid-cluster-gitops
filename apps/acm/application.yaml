@@ -12,6 +12,17 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: open-cluster-management
+  # The perses-operator continuously manages the Perses CR's spec (enabling
+  # Kubernetes auth, changing the CA ConfigMap name to the auto-injected one,
+  # flipping case_sensitive), overriding the values in perses.yaml. Without
+  # this ignore, the acm app cycles between Synced and OutOfSync every time
+  # the operator reconciles.
+  ignoreDifferences:
+    - group: perses.dev
+      kind: Perses
+      jsonPointers:
+        - /spec/client
+        - /spec/config/database/file/case_sensitive
   syncPolicy:
     automated:
       prune: true
