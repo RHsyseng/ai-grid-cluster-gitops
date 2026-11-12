@@ -1,14 +1,17 @@
 # RHOAI prerequisites
 
-This app distributes the RHOAI installation prerequisites to every cluster
-in the reserved `global` ACM cluster set:
+This app distributes the RHOAI installation prerequisites to the AI Grid members,
+the clusters labelled `ai-grid/enabled=true`, and to the hub, which pulls the
+grid-bootstrap image from the same registry. Other managed clusters get nothing:
 
 - the protected `redhat-ai-grid` and `redhat-ods-operator` Namespaces;
-- the same `ImageDigestMirrorSet` used by the hub;
+- image-mirror enforcement on conventional clusters and validation of service-managed
+  mirror mappings on hosted control planes;
 - the `openshift-marketplace/rhoai-catalog-pull-secret` required to pull the
   RHOAI catalog image;
-- merged `openshift-config/pull-secret` entries for `quay.io/rhoai`, required
-  for mirrored operator-bundle pulls, and for every other registry the hub
+- merged worker credentials (`openshift-config/pull-secret` on conventional
+  clusters, `kube-system/additional-pull-secret` on hosted control planes)
+  for `quay.io/rhoai` mirrored operator-bundle pulls, and for every other registry the hub
   Secret holds, such as `registry.stage.redhat.io` for the
   `registry.redhat.io/rhaii*` mirrors that model images pull through.
 - the Limitador Redis configuration, on remote ingress and combined sites only, that shares MaaS rate-limit
@@ -39,18 +42,155 @@ still distributed because it does not contain credentials.
 ## Clean-cluster flow
 
 `bootstrap.sh` seeds only the hub-side credential Secret. The root
-ApplicationSet then discovers this app, ACM applies the prerequisites to every
-cluster in the `global` cluster set, and the RHOAI ApplicationSet deploys after
-them. No per-cluster `rosa`, `ocm`, or pull-secret command is required when a
-managed cluster joins.
+ApplicationSet then discovers this app, ACM applies the prerequisites to the hub and
+to each cluster as it gains the `ai-grid/enabled` label, and the RHOAI ApplicationSet
+deploys after them. Worker credentials are distributed by policy; HCP additionally
+requires the supported worker sync mechanism described below. Conventional clusters
+receive mirror configuration directly. Hosted control planes require service-managed
+mirror configuration before installation; see
+[hosted control plane image mirrors](#hosted-control-plane-image-mirrors).
 
-The global pull-secret policy is idempotent. It reads the current
-`openshift-config/pull-secret`, preserves every existing credential, and
-adds the hub-side entries it lacks: `quay.io/rhoai` from the Quay credential,
+The global pull-secret policy is idempotent. It reads the current target
+Secret, preserves unrelated credentials and Docker config fields, and
+updates hub-managed registry entries: `quay.io/rhoai` from the Quay credential
 and any other registry the hub Secret holds. A bare `quay.io` entry in the hub
 Secret is applied only as `quay.io/rhoai`, so the cluster's own `quay.io` login
-stays. Updating that Secret triggers the normal Machine Config
-Operator rollout to each node.
+stays. On conventional control planes, updating the global Secret triggers
+the normal Machine Config Operator rollout. Hosted control planes use the
+worker syncer described below.
+
+## Worker credentials on hosted control planes
+
+For `Infrastructure/cluster.status.controlPlaneTopology: External`, the global
+pull-secret policy creates or updates `kube-system/additional-pull-secret`.
+Updating only the guest's `openshift-config/pull-secret` does not supply the
+credentials through the HCP worker syncer. The policy preserves existing
+additional credentials and Docker config fields, scopes a bare Quay entry to
+`quay.io/rhoai`, and lets hub-supplied entries replace older entries for the
+same registry. Missing or empty catalog credential input makes no changes.
+
+HCCO merges the additional Secret with the original HostedCluster pull secret.
+At this second merge, **original HostedCluster entries win exact registry-key
+conflicts**. A scoped `quay.io/rhoai` entry can coexist with an original broad
+`quay.io` entry. The policy does not manage `original-pull-secret`, the generated
+`global-pull-secret`, or the HostedCluster secret. It does not prune previously
+managed Secrets on topology changes or policy removal.
+
+This path requires the global pull-secret feature and eligible workers. The
+[HyperShift 4.22 procedure](https://github.com/openshift/hypershift/blob/release-4.22/docs/content/how-to/common/global-pull-secret.md)
+describes the requirements: AWS/Azure Replace NodePools use
+`hypershift.openshift.io/nodepool-globalps-enabled=true`; Karpenter nodes use
+`karpenter.sh/nodepool`. InPlace and other workers may have no sync pods.
+A DaemonSet object alone does not establish worker coverage. Verify the
+supported mechanism for your platform and version before installation; do not
+manually label ineligible nodes to force the syncer onto them.
+
+Credential changes cause the syncer to update eligible workers' kubelet
+configuration and restart kubelet. Plan for this rollout. Mirror mappings
+remain a separate prerequisite ([RHAI-18761](https://redhat.atlassian.net/browse/RHAI-18761)).
+Use credentials for the actual mirror registry, rather than adding Quay or
+stage credentials under `registry.redhat.io` aliases. Direct pulls of protected
+`registry.redhat.io` images still require that registry's valid credentials;
+existing entries are preserved.
+
+Verify metadata and worker coverage without displaying credential payloads:
+
+```sh
+kubectl --context "$SPOKE_CONTEXT" -n kube-system get secrets \
+  additional-pull-secret global-pull-secret \
+  -o custom-columns='NAME:.metadata.name,TYPE:.type'
+kubectl --context "$SPOKE_CONTEXT" -n kube-system get daemonset global-pull-secret-syncer
+kubectl --context "$SPOKE_CONTEXT" -n kube-system get pods \
+  -l name=global-pull-secret-syncer -o wide
+kubectl --context "$SPOKE_CONTEXT" get nodes \
+  -L hypershift.openshift.io/nodepool-globalps-enabled,karpenter.sh/nodepool
+kubectl --context "$SPOKE_CONTEXT" -n rhoai-prerequisites \
+  get configurationpolicy rhoai-global-pull-secret
+```
+
+Confirm every intended worker is covered and Ready. Then validate a fresh
+mirrored image pull and the RHOAI operator's installed CSV. Secret presence,
+policy compliance and direct registry access alone do not establish that
+worker pulls succeed. If OLM has a terminal extraction failure from before
+credential delivery, identify that failed Job/cache and follow scoped recovery
+after delivery is verified; do not broadly remove Subscriptions or CSVs.
+
+Deleting `additional-pull-secret` makes HCCO remove its generated merged Secret
+and return eligible workers to original credentials. This policy recreates the
+additional Secret while enabled, so withdrawal requires an explicit GitOps
+ownership change. Do not delete shared additional credentials as a rollback.
+
+Run the local fixture rendering checks with Helm and PyYAML:
+
+```sh
+python3 apps/rhoai-prerequisites/tests/pull-secret-test.py
+```
+
+## Hosted control plane image mirrors
+
+On clusters whose `Infrastructure/cluster.status.controlPlaneTopology` is
+`External`, image mirrors are owned by the hosting service. ROSA HCP admission
+rejects guest-cluster creation, update or deletion of ImageDigestMirrorSets.
+Configure digest mirrors through the supported service API before RHOAI
+installation; additional guest RBAC does not bypass that restriction.
+
+For ROSA HCP, authenticate `rosa` against the cluster's OCM environment and
+select the target HCP cluster. These commands were checked with ROSA CLI 1.2.67:
+
+```sh
+export ROSA_CLUSTER='<hcp-cluster-name-or-id>'
+rosa list image-mirrors --cluster "$ROSA_CLUSTER" -o json
+```
+
+Inspect existing records first. For each missing source, create its mapping:
+
+```sh
+rosa create image-mirror --cluster "$ROSA_CLUSTER" \
+  --source registry.redhat.io/rhoai --mirrors quay.io/rhoai
+rosa create image-mirror --cluster "$ROSA_CLUSTER" \
+  --source registry.redhat.io/rhaii --mirrors registry.stage.redhat.io/rhaii
+rosa create image-mirror --cluster "$ROSA_CLUSTER" \
+  --source registry.redhat.io/rhaii-early-access --mirrors registry.stage.redhat.io/rhaii-early-access
+rosa create image-mirror --cluster "$ROSA_CLUSTER" \
+  --source registry.redhat.io/rhaii-fast --mirrors registry.stage.redhat.io/rhaii-fast
+```
+
+If a source already exists, retain its record and use
+`rosa edit image-mirror --cluster "$ROSA_CLUSTER" --id '<mirror-id>' --mirrors '<complete-mirror-list>'`
+when an update is needed. Editing replaces the mirror list; preserve any
+existing mirrors that are still required rather than creating duplicate sources.
+
+The `rhoai-image-mirror` ConfigurationPolicy renders an unnamed object template
+on External control planes. ACM evaluates unnamed templates in inform mode,
+even though this shared policy otherwise enforces prerequisites. It checks for
+one ImageDigestMirrorSet containing all four mappings, without creating or
+changing the service-owned resource or requiring its name to be `quay-registry`.
+Missing mappings remain NonCompliant. Mappings split across multiple IDMS
+objects are not covered by this check. Inspect the service's resulting objects:
+
+```sh
+kubectl --context "$SPOKE_CONTEXT" get imagedigestmirrorsets -o yaml
+kubectl --context "$SPOKE_CONTEXT" -n rhoai-prerequisites \
+  get configurationpolicy rhoai-image-mirror
+```
+
+Conventional control planes retain named `quay-registry` enforcement with
+`NeverContactSource`. The ROSA CLI does not expose an equivalent fallback-policy
+setting, so the HCP check does not require `mirrorSourcePolicy` or claim the
+same source-fallback behavior. The policy retains `pruneObjectBehavior: DeleteAll`
+to preserve existing conventional-cluster cleanup behavior. Live pruning of matched
+unnamed HCP resources and named-to-unnamed transitions remains to be verified.
+
+Worker credentials come from the
+[HCP pull-secret path above](#worker-credentials-on-hosted-control-planes),
+implemented in PR #230 for [RHAI-18763](https://redhat.atlassian.net/browse/RHAI-18763).
+A Compliant mirror policy alone does not establish that mirrored image pulls succeed.
+
+Run the local rendering checks with Helm and PyYAML:
+
+```sh
+python3 apps/rhoai-prerequisites/tests/image-mirror-test.py
+```
 
 ## OpenTelemetry cert-manager compatibility
 

@@ -1,23 +1,7 @@
-{{- /* Fork divergence: an enable gate so the policy can be skipped where the
-       MaaS Gateway does not exist. The template otherwise renders an enforce
-       policy that tries to CREATE the Gateway from this partial spec (no
-       port/protocol/gatewayClassName) on inference sites, where MaaS is
-       removed - an invalid object and a permanent violation. Defaults to
-       true so upstream behavior is unchanged when not configured. */ -}}
-{{- /* "false" disables; anything else (unset, true) keeps upstream behavior.
-       A plain `if .Values.enabled | default true` does not work: Helm's
-       default replaces the boolean false, so it can never disable. */ -}}
-{{- $enabled := .Values.enabled | toString -}}
 {{- $gateway := .Values.components.aigateway.modelsAsAService.gateway }}
-{{- /* OpenShift Route exposure disables the policy: the reencrypt Route
-       terminates TLS at the router and dials the gateway with the
-       service-name SNI (or none), so a hostname on the listener becomes
-       an SNI filter chain envoy never matches (filter_chain_not_found,
-       router 503). The Route's own host is the stable name in that mode,
-       and the HTTPRoutes route by Host header on a hostname-less
-       listener. */ -}}
-{{- $routeMode := (($gateway.openshiftRoute | default dict).enabled) | toString -}}
-{{- if and (ne $enabled "false") (ne $routeMode "true") }}
+{{- /* Route mode: the Route's host is the external name, and a listener hostname breaks its SNI. */}}
+{{- $routeMode := (($gateway.openshiftRoute | default dict).enabled | default false) }}
+{{- if and (ne (.Values.role | default "") "inference") (not $routeMode) }}
 {{- $hostnamePrefix := index $gateway.annotations "ai-grid/maas-gateway-hostname-prefix" }}
 {{- if not $hostnamePrefix }}{{ fail "components.aigateway.modelsAsAService.gateway.annotations.ai-grid/maas-gateway-hostname-prefix is required" }}{{ end }}
 apiVersion: policy.open-cluster-management.io/v1
@@ -40,14 +24,8 @@ spec:
           namespace: {{ $gateway.namespace }}
         spec:
           listeners:
-            {{- /* Patch the hostname onto every listener the Gateway
-                   declares. The listener set comes from the values
-                   (apps/rhoai/values-<cluster>.yaml, where a site
-                   customizes it - e.g. https-only behind an OpenShift
-                   Route); fall back to the standard http+https pair. */ -}}
-            {{- $listeners := (($gateway.spec | default dict).listeners) | default (list (dict "name" "http") (dict "name" "https")) }}
-            {{- range $listener := $listeners }}
-            - name: {{ $listener.name }}
+            - name: http
               hostname: '{{ $hostnamePrefix }}.{{ "{{" }} (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain {{ "}}" }}'
-            {{- end }}
+            - name: https
+              hostname: '{{ $hostnamePrefix }}.{{ "{{" }} (lookup "config.openshift.io/v1" "Ingress" "" "cluster").spec.domain {{ "}}" }}'
 {{- end }}
