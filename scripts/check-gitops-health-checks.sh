@@ -53,6 +53,7 @@ find . -path './.git' -prune -o -type f -name '*.yaml' -print0 |
 cat > "$external" <<'EOF'
 admissionregistration.k8s.io	ValidatingAdmissionPolicy
 admissionregistration.k8s.io	ValidatingAdmissionPolicyBinding
+apiextensions.k8s.io	CustomResourceDefinition
 dscinitialization.opendatahub.io	DSCInitialization
 gateway.networking.k8s.io	GatewayClass
 grid.praxis.fast	GridNetwork
@@ -104,6 +105,7 @@ metallb.io	L2Advertisement
 metallb.io	MetalLB
 monitoring.coreos.com	ServiceMonitor
 monitoring.rhobs	ScrapeConfig
+perses.dev	Perses
 policy.open-cluster-management.io	PlacementBinding
 policy.open-cluster-management.io	Policy
 submariner.io	Broker
