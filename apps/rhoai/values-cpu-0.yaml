@@ -2,25 +2,36 @@
 # ApplicationSet merges this after apps/rhoai/values.yaml and the role
 # profile; absent for other clusters (ignoreMissingValueFiles).
 #
-# Currently a no-op (comment-only): the openshiftRoute exposure below is
-# DISABLED. Route mode is blocked at runtime by RHAI-21506 -- maas-api's
-# /v1/tenants reads spec.listeners[].hostname, which a Route-mode listener
-# cannot carry; BackendTLSPolicies are created by no component (RHAI-23537);
-# the portal NetworkPolicy blocks gateway access; and the Gateway reports
-# its internal service DNS as its address. The chart (>= 3.6.0-dev.34.1,
-# odh-gitops PR #285) also fails the render when a hostname is set in
-# Route mode, so the host below would break cpu-0's Application outright.
+# Currently exposes cpu-0's MaaS Gateway with the default LoadBalancer mode
+# (the openshiftRoute block below is DISABLED). Route mode is blocked at
+# runtime by RHAI-21506 -- maas-api's /v1/tenants reads
+# spec.listeners[].hostname, which a Route-mode listener cannot carry --
+# and the chart (>= 3.6.0-dev.34.1, odh-gitops PR #285) fails the render
+# when a hostname is set in Route mode. The rhoai-maas-gateway-hostname
+# policy patches the listener hostnames to maas.<apps domain>; the lab has
+# a DNS record for that name pointing at the Gateway's MetalLB address
+# (the *.apps wildcard reaches only the router).
 #
-# Without this override cpu-0 uses the default LoadBalancer exposure, and
-# the rhoai-maas-gateway-hostname policy patches the listener hostnames to
-# maas.<apps domain>. The lab needs a DNS record for that name pointing at
-# the Gateway's MetalLB address (the *.apps wildcard reaches only the
-# router).
+# spec.addresses: with MetalLB the Gateway's status address is a bare IP,
+# and clients that build their URL from it (the console's maas-ui) dial the
+# IP without SNI, which the hostname-bound envoy filter chain resets. On a
+# cloud LB the Service gets a DNS name and istiod reports a Hostname-typed
+# address instead. Declare the external name here so istiod surfaces a
+# Hostname entry in status.addresses too, matching what cloud platforms
+# provide and letting address-based clients send the right SNI.
+components:
+  aigateway:
+    modelsAsAService:
+      gateway:
+        spec:
+          addresses:
+            - type: Hostname
+              value: maas.apps.cpu-0.aigrid.bos2.lab
 #
-# To re-enable once RHAI-21506 is fixed upstream: uncomment the block below
-# (mind the chart's hostname fail-fast), and drop the per-listener hostname
-# patching conflicts with the gateway-hostname policy (it skips itself in
-# Route mode).
+# To re-enable Route mode once RHAI-21506 is fixed upstream: uncomment the
+# block below (mind the chart's hostname fail-fast), and drop the
+# per-listener hostname patching conflicts with the gateway-hostname policy
+# (it skips itself in Route mode).
 #
 # components:
 #   aigateway:
