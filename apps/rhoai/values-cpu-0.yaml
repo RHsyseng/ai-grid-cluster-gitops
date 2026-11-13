@@ -2,40 +2,52 @@
 # ApplicationSet merges this after apps/rhoai/values.yaml and the role
 # profile; absent for other clusters (ignoreMissingValueFiles).
 #
-# Expose cpu-0's MaaS Gateway through an OpenShift Route (ClusterIP service
-# + re-encrypt Route, the chart's components.aigateway.modelsAsAService.
-# gateway.openshiftRoute mode) instead of the default LoadBalancer, so the
-# lab's *.apps wildcard DNS reaches it through the router: no per-site DNS
-# record or dedicated MetalLB address is needed. The rhoai-maas-gateway-
-# hostname policy keeps patching the listener hostnames, which must match
-# this Route host. Per-cluster file because the host is the site's own
-# apps domain.
-components:
-  aigateway:
-    modelsAsAService:
-      gateway:
-        openshiftRoute:
-          enabled: true
-          host: maas.apps.cpu-0.aigrid.bos2.lab
-        # https only: the chart's openshiftRoute mode sets TLS on every
-        # listener, and the Gateway API rejects tls on an HTTP-protocol
-        # listener, so the default http listener cannot stay. The Route
-        # redirects http to https (insecureEdgeTerminationPolicy:
-        # Redirect), so nothing is lost. Replaces the profile's
-        # http+https pair (Helm replaces lists wholesale).
-        spec:
-          listeners:
-            - name: https
-              port: 443
-              protocol: HTTPS
-              allowedRoutes:
-                namespaces:
-                  from: Selector
-                  selector:
-                    matchExpressions:
-                      - key: kubernetes.io/metadata.name
-                        operator: In
-                        values:
-                          - openshift-ingress
-                          - models-as-a-service
-                          - redhat-ai-gateway-infra
+# Currently a no-op (comment-only): the openshiftRoute exposure below is
+# DISABLED. Route mode is blocked at runtime by RHAI-21506 -- maas-api's
+# /v1/tenants reads spec.listeners[].hostname, which a Route-mode listener
+# cannot carry; BackendTLSPolicies are created by no component (RHAI-23537);
+# the portal NetworkPolicy blocks gateway access; and the Gateway reports
+# its internal service DNS as its address. The chart (>= 3.6.0-dev.34.1,
+# odh-gitops PR #285) also fails the render when a hostname is set in
+# Route mode, so the host below would break cpu-0's Application outright.
+#
+# Without this override cpu-0 uses the default LoadBalancer exposure, and
+# the rhoai-maas-gateway-hostname policy patches the listener hostnames to
+# maas.<apps domain>. The lab needs a DNS record for that name pointing at
+# the Gateway's MetalLB address (the *.apps wildcard reaches only the
+# router).
+#
+# To re-enable once RHAI-21506 is fixed upstream: uncomment the block below
+# (mind the chart's hostname fail-fast), and drop the per-listener hostname
+# patching conflicts with the gateway-hostname policy (it skips itself in
+# Route mode).
+#
+# components:
+#   aigateway:
+#     modelsAsAService:
+#       gateway:
+#         openshiftRoute:
+#           enabled: true
+#           host: maas.apps.cpu-0.aigrid.bos2.lab
+#         # https only: the chart's openshiftRoute mode sets TLS on every
+#         # listener, and the Gateway API rejects tls on an HTTP-protocol
+#         # listener, so the default http listener cannot stay. The Route
+#         # redirects http to https (insecureEdgeTerminationPolicy:
+#         # Redirect), so nothing is lost. Replaces the profile's
+#         # http+https pair (Helm replaces lists wholesale).
+#         spec:
+#           listeners:
+#             - name: https
+#               port: 443
+#               protocol: HTTPS
+#               allowedRoutes:
+#                 namespaces:
+#                   from: Selector
+#                   selector:
+#                     matchExpressions:
+#                       - key: kubernetes.io/metadata.name
+#                         operator: In
+#                         values:
+#                           - openshift-ingress
+#                           - models-as-a-service
+#                           - redhat-ai-gateway-infra
