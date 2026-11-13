@@ -19,6 +19,17 @@
 # namespace's SCC annotation (below, in 09_coo_subscription.yaml in the ZTP
 # repo): the perses-operator pins fsGroup 65534, which a plain Namespace
 # with no SCC group allocation rejects under restricted-v2.
+#
+# The spec below carries the values the perses-operator enforces: it
+# defaults and rewrites several fields on every reconcile (containerPort,
+# serviceAccountName, podSecurityContext, the service-cert secret name,
+# spec.tls.caCert, config.security, config.variable, and it disables
+# ephemeral dashboards), regardless of what a manifest sets. Carrying the
+# enforced values keeps Argo CD Synced; the fields the operator still
+# rewrites dynamically are covered by the ignoreDifferences in
+# apps/acm/application.yaml (spec.client and
+# spec.config.database.file.case_sensitive). If the operator's enforced
+# values change on an upgrade, realign this manifest the same way.
 apiVersion: perses.dev/v1alpha2
 kind: Perses
 metadata:
@@ -26,13 +37,22 @@ metadata:
   namespace: openshift-cluster-observability-operator
 spec:
   replicas: 1
+  # The operator's chosen wiring; listed explicitly so Git matches the
+  # enforced spec (the operator sets these even when they are omitted).
+  containerPort: 8080
+  serviceAccountName: perses-sa
+  podSecurityContext:
+    fsGroup: 65534
+    runAsNonRoot: true
+    runAsUser: 65534
   # The productized image, the same digest RHOAI's Monitoring CR uses on
   # the sites: the perses-operator's default is the community
   # docker.io/persesdev/perses, which lacks the Red Hat Loki plugins the
   # usage-logs dashboard uses (LokiLabelValuesVariable) and is unreachable
   # on a disconnected hub.
   image: registry.redhat.io/cluster-observability-operator/perses-rhel9@sha256:f2cffebadddf00f16e89a471e37e25dcf5cd060918de9c2074640b646607ee76
-  # Mirrors the config RHOAI's Monitoring CR renders (data-science-perses).
+  # Mirrors the config RHOAI's Monitoring CR renders (data-science-perses),
+  # plus the security and variable blocks the operator defaults in.
   # Required: without a valid config the perses-operator renders an empty
   # one and never creates the workload.
   config:
@@ -48,9 +68,12 @@ spec:
         disable: false
       project:
         disable: false
+    # The operator forces ephemeral dashboards off; carrying its values
+    # keeps the diff clean. Nothing in this deployment uses them (the
+    # console's dashboards are regular PersesDashboard CRs).
     ephemeral_dashboard:
-      cleanup_interval: 1s
-      enable: true
+      cleanup_interval: 0s
+      enable: false
     frontend:
       disable: false
       explorer:
@@ -58,13 +81,37 @@ spec:
     plugin:
       enable_dev: false
     provisioning: {}
+    security:
+      authentication:
+        disable_sign_up: true
+        providers:
+          enable_native: false
+          kubernetes:
+            enable: true
+      authorization:
+        provider:
+          kubernetes:
+            enable: true
+      cookie:
+        secure: false
+      cors:
+        enable: false
+      enable_auth: true
+      readonly: false
+    variable:
+      disable_local: false
+      global:
+        disable: false
+      project:
+        disable: false
   # No storage override: a file database without emptyDir becomes a
   # StatefulSet with a PVC (the namespace's default storage class), so the
   # pushed dashboards survive pod restarts. With emptyDir every restart
   # empties the server and the perses-operator does not re-push until a
   # PersesDashboard/PersesDatasource changes.
   # TLS with an OpenShift service-serving certificate: the service-ca
-  # operator issues the cert into the annotated secret and the
+  # operator issues the cert into the annotated secret ("perses" — the
+  # operator rewrites the annotation value to its own secret name) and the
   # perses-operator mounts it (spec.tls.userCert — despite the name, the
   # SERVER certificate: the operator adds --web.tls-cert-file and
   # --web.tls-key-file). The console's bff refuses plaintext Perses URLs
@@ -72,36 +119,37 @@ spec:
   # certificate with its default PERSES_CA_FILE, the service CA.
   service:
     annotations:
-      service.beta.openshift.io/serving-cert-secret-name: perses-tls
+      service.beta.openshift.io/serving-cert-secret-name: perses
   tls:
     enable: true
+    # The operator adds its own CA reference (the namespace's standard
+    # service-CA ConfigMap) alongside the server certificate.
+    caCert:
+      type: configmap
+      name: openshift-service-ca.crt
+      namespace: openshift-cluster-observability-operator
+      certPath: service-ca.crt
     userCert:
       type: secret
-      name: perses-tls
+      name: perses
       namespace: openshift-cluster-observability-operator
       certPath: tls.crt
       privateKeyPath: tls.key
   # The operator's OWN client connection to this server: it pushes the
   # dashboards and datasources over the service URL and must verify the
   # same service-CA certificate. spec.client.tls (distinct from the
-  # server-side spec.tls above) reads the CA from the ConfigMap below,
-  # whose annotation makes OpenShift inject the service CA bundle.
+  # server-side spec.tls above) reads the namespace's standard
+  # openshift-service-ca.crt ConfigMap, which the service-ca operator
+  # injects and keeps current in every namespace. The operator rewrites
+  # parts of this block on reconcile, so it is under the Application's
+  # ignoreDifferences.
   client:
+    kubernetesAuth:
+      enable: true
     tls:
       enable: true
       caCert:
         type: configmap
-        name: perses-service-ca
+        name: openshift-service-ca.crt
         namespace: openshift-cluster-observability-operator
         certPath: service-ca.crt
----
-# The service CA bundle for the perses-operator's client verification
-# (spec.client.tls.caCert above). The inject-cabundle annotation makes
-# OpenShift's service-ca operator keep the service-ca.crt key current.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: perses-service-ca
-  namespace: openshift-cluster-observability-operator
-  annotations:
-    service.beta.openshift.io/inject-cabundle: "true"
