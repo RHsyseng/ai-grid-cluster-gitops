@@ -2,9 +2,9 @@
 # ApplicationSet merges this after apps/rhoai/values.yaml and the role
 # profile; absent for other clusters (ignoreMissingValueFiles).
 #
-# Currently exposes cpu-0's MaaS Gateway with the default LoadBalancer mode
-# (the openshiftRoute block below is DISABLED). Route mode is blocked at
-# runtime by RHAI-21506 -- maas-api's /v1/tenants reads
+# Currently a comment-only stub: cpu-0's MaaS Gateway uses the default
+# LoadBalancer exposure (the openshiftRoute block below is DISABLED). Route
+# mode is blocked at runtime by RHAI-21506 -- maas-api's /v1/tenants reads
 # spec.listeners[].hostname, which a Route-mode listener cannot carry --
 # and the chart (>= 3.6.0-dev.34.1, odh-gitops PR #285) fails the render
 # when a hostname is set in Route mode. The rhoai-maas-gateway-hostname
@@ -12,21 +12,18 @@
 # a DNS record for that name pointing at the Gateway's MetalLB address
 # (the *.apps wildcard reaches only the router).
 #
-# spec.addresses: with MetalLB the Gateway's status address is a bare IP,
-# and clients that build their URL from it (the console's maas-ui) dial the
-# IP without SNI, which the hostname-bound envoy filter chain resets. On a
-# cloud LB the Service gets a DNS name and istiod reports a Hostname-typed
-# address instead. Declare the external name here so istiod surfaces a
-# Hostname entry in status.addresses too, matching what cloud platforms
-# provide and letting address-based clients send the right SNI.
-components:
-  aigateway:
-    modelsAsAService:
-      gateway:
-        spec:
-          addresses:
-            - type: Hostname
-              value: maas.apps.cpu-0.aigrid.bos2.lab
+# A Gateway spec.addresses Hostname declaration (maas.<apps domain>) was
+# tried in 945ee0d and removed: istiod copies spec.addresses into the
+# LoadBalancer Service's spec.loadBalancerIP, and MetalLB allocates for
+# that field only when it is an IP -- on a fresh install the Service is
+# born with the hostname there and the controller logs
+# "AllocationFailed: invalid spec.loadBalancerIP", leaving the Gateway
+# Programmed=False forever. It only looked inert on 2026-11-13 because it
+# landed after MetalLB had already assigned an address. It also never
+# produced a Hostname-typed Gateway status address (MetalLB cannot write
+# status hostnames at all, RHAI-48803); the maas-ui SNI race it aimed to
+# fix is handled operationally instead: restart maas-ui after the
+# gateway-hostname policy patches the listener (fresh-install runbook).
 #
 # To re-enable Route mode once RHAI-21506 is fixed upstream: uncomment the
 # block below (mind the chart's hostname fail-fast), and drop the
