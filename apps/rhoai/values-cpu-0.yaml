@@ -25,6 +25,25 @@
 # fix is handled operationally instead: restart maas-ui after the
 # gateway-hostname policy patches the listener (fresh-install runbook).
 #
+# An IPAddress-typed declaration, unlike the Hostname attempt, is the
+# supported way to pin the address: MetalLB honors a spec.loadBalancerIP
+# that names an address in the site's pool (cpu-0's ZTP-owned rack119-pool
+# is 192.168.19.90-.96; .90 is the submariner gateway, .91/.92 fall to the
+# grid-operator signals/swim services). Pinning .93 keeps the lab DNS
+# record and the node dnsmasq entry (both -> .93) valid across rebuilds;
+# without it the pool race is non-deterministic (2026-11-13: .91, same
+# install a day later: .93). If a rebuild ever claims .93 first, the
+# Gateway stays Programmed=False with the same AllocationFailed event --
+# visible, and the fix is to move the pin and both DNS entries.
+components:
+  aigateway:
+    modelsAsAService:
+      gateway:
+        spec:
+          addresses:
+            - type: IPAddress
+              value: 192.168.19.93
+#
 # To re-enable Route mode once RHAI-21506 is fixed upstream: uncomment the
 # block below (mind the chart's hostname fail-fast), and drop the
 # per-listener hostname patching conflicts with the gateway-hostname policy
