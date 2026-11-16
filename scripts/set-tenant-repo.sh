@@ -24,8 +24,10 @@ check() {
       want {if ($0 !~ /^[[:space:]]*(targetRevision|revision):[[:space:]]*[^[:space:]]+/) {print f": source without a revision after its repoURL"; bad=1}; want=0}
       END {exit bad}' "$f" || bad=1
   done < <(sources)
-  # No other copy of this repository is named anywhere.
-  stray=$(grep -rnE --include='*.yaml' 'repoURL:[[:space:]]*\S*ai-grid-tenant' . | grep -vF "repoURL: $current" || true)
+  # No other copy of this repository is named anywhere. Upstream was renamed
+  # from ai-grid-tenant to ai-grid-cloud; catch both so a merge that brings
+  # back upstream repoURLs fails this check.
+  stray=$(grep -rnE --include='*.yaml' 'repoURL:[[:space:]]*\S*(ai-grid-tenant|ai-grid-cloud/ai-grid-cluster-gitops)' . | grep -vF "repoURL: $current" || true)
   [[ -z $stray ]] || { echo "error: sources name another tenant repository:" >&2; echo "$stray" >&2; bad=1; }
   ((bad == 0)) && echo "ok: $(sources | wc -l) files point at $current"
   return "$bad"

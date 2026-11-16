@@ -72,7 +72,7 @@ related_images = {item["name"]: item["value"]
                   for item in values["global"]["relatedImages"]}
 expected = {
     "RELATED_IMAGE_ODH_PRAXIS_AI_GRID_GATEWAY_IMAGE":
-        "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:3b59054cd8cc84fa44bd3b77e3d2648f8e28578ec9a298d8cd3128b4c6bfe472",
+        "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:a28f497b0eb01878c64b05a048dd5906dab399b991db263873030e7fe7ae1665",
 }
 assert related_images == expected, f"unexpected Grid related images: {related_images}"
 PY
@@ -80,6 +80,24 @@ then
   ok "Grid payload images are tenant-owned"
 else
   bad "Grid payload images are tenant-owned" "related-image contract failed"
+fi
+
+if python3 - "$HERE/../hub/01-applicationset.yaml" <<'PY'
+import sys
+import yaml
+
+appset = yaml.safe_load(open(sys.argv[1]))
+helm = next(source["helm"] for source in appset["spec"]["template"]["spec"]["sources"]
+            if source.get("repoURL", "").startswith("oci://"))
+site = next(parameter["value"] for parameter in helm["parameters"]
+            if parameter["name"] == "praxis-provider-gateway.grid.siteName")
+assert site == "{{ .name }}" and '"siteName": {{ .name | quote }}' in helm["values"], \
+    "the certificate's site must be the name the provider gateway enrolls under"
+PY
+then
+  ok "the authorized site is the provider gateway's site"
+else
+  bad "the authorized site is the provider gateway's site"
 fi
 
 printf 'apiVersion: v2\nname: tpl\nversion: 0.1.0\n' > "$T/tpl/Chart.yaml"
@@ -162,12 +180,13 @@ check() {
 check_contract() {
   local description=$1 role=$2 labels_json=$3
   if render_role "$role" "$labels_json" &&
-     python3 - "$T/render.yaml" "$HERE/../hub/02-ingress-clusters-policy.yaml" "$role" <<'PY'
+     python3 - "$T/render.yaml" "$HERE/../hub/02-ingress-clusters-policy.yaml" "$role" "$CHART" <<'PY'
+import json
 import sys
 import yaml
 from pathlib import Path
 
-render_path, policy_path, role = sys.argv[1:]
+render_path, policy_path, role, chart_path = sys.argv[1:]
 rbac_path = Path(policy_path).with_name("00-tenant-templating-rbac.yaml")
 documents = [document for document in yaml.safe_load_all(open(render_path)) if document]
 services = {document["metadata"]["name"]: document for document in documents
@@ -181,7 +200,7 @@ service_accounts = {document["metadata"]["name"] for document in documents
 secrets = {document["metadata"]["name"] for document in documents
            if document.get("kind") == "Secret"}
 payload_image = \
-    "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:3b59054cd8cc84fa44bd3b77e3d2648f8e28578ec9a298d8cd3128b4c6bfe472"
+    "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:a28f497b0eb01878c64b05a048dd5906dab399b991db263873030e7fe7ae1665"
 
 if "grid-provider-gateway" in deployments:
     provider = deployments["grid-provider-gateway"]["spec"]["template"]["spec"]
@@ -196,6 +215,35 @@ expected_services = {
 assert set(services) >= expected_services, f"missing services: {expected_services - set(services)}"
 assert set(services).isdisjoint({"grid-gateway", "grid-provider-gateway"} - expected_services), \
     f"unexpected gateways: {set(services) & ({'grid-gateway', 'grid-provider-gateway'} - expected_services)}"
+
+serving = [document for document in documents if document.get("kind") == "Gateway"
+           and document["metadata"]["name"] == "openshift-ai-inference"]
+if role == "ingress":
+    assert not serving, "an ingress site has no serving gateway"
+else:
+    listeners = {listener["name"]: listener for listener in serving[0]["spec"]["listeners"]}
+    assert set(listeners) == {"http", "https", "grid"}, f"serving gateway listeners: {sorted(listeners)}"
+    for name in ("http", "https"):
+        assert "options" not in listeners[name].get("tls", {}), \
+            f"the {name} listener must not ask its callers for a client certificate"
+    grid = listeners["grid"]
+    assert (grid["port"], grid["protocol"]) == (8443, "HTTPS"), "the grid listener moved"
+    assert grid["tls"]["options"] == {"gateway.istio.io/tls-terminate-mode": "MUTUAL"}, \
+        "the grid listener must require a client certificate"
+    assert grid["tls"]["certificateRefs"] == listeners["https"]["tls"]["certificateRefs"], \
+        "the grid listener must serve the https listener's certificate, which names its client CA Secret"
+    assert all(listener["allowedRoutes"] == listeners["https"]["allowedRoutes"] for listener in listeners.values()), \
+        "every serving listener admits the same namespaces"
+    https = [listener["name"] for listener in serving[0]["spec"]["listeners"] if listener["protocol"] == "HTTPS"]
+    assert https[0] == "https", "KServe takes a model's address from the first HTTPS listener"
+    key = "grid.opendatahub.io/serving"
+    config = json.loads(serving[0]["metadata"]["annotations"][key])
+    certificate = config.pop("clientCertificate", None)
+    profile = yaml.safe_load(open(Path(chart_path) / "profiles" / "ai-grid-inference.yaml"))
+    assert config == json.loads(profile["components"]["kserve"]["gateway"]["annotations"][key]), \
+        "the serving annotation drifted from the chart profile's"
+    assert certificate == {"listener": "grid", "siteName": "site"}, \
+        f"Grid must present this site's certificate on the grid listener: {certificate}"
 
 expected_model_clients = {
     "ingress": set(),
