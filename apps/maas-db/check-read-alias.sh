@@ -3,29 +3,28 @@
 # endpoints and answer an authenticated read, before maas-db-config is switched to it. Exits non-zero at the
 # first site that is not ready. Needs oc.
 #
-#   apps/maas-db/check-read-alias.sh <kubeconfig>...        # the hub's and every ingress or combined site's
+#   apps/maas-db/check-read-alias.sh <hub kubeconfig> <site kubeconfig>...   # every ingress or combined site
 #
 # A hub's maas-read-r is an ExternalName to maas-db-ro, so its target's endpoints are checked; a remote
 # site's is CloudNativePG's -r Service of the replica cluster. A remote site's maas-read Cluster must also
 # report the hub maas-db Cluster's systemID (a replica left from an earlier hub reports another) and its
-# primary must be streaming WAL; so the hub's kubeconfig must be among the arguments. The read runs psql
+# primary must be streaming WAL; so the hub's kubeconfig must be among the arguments (in any position), and
+# both Clusters need CloudNativePG 1.27 or later, which reports .status.systemID. The read runs psql
 # inside a database pod of that site with the application user's credentials from the maas-db-app Secret
 # (DBNAME, default maas, when that Secret has no dbname key).
 set -euo pipefail
 NS=${NAMESPACE:-maas-db}; HOST=maas-read-r.${NS}.svc.cluster.local
-[ "$#" -ge 1 ] || { sed -n '2,13p' "$0" >&2; exit 2; }
+[ "$#" -ge 1 ] || { sed -n '2,14p' "$0" >&2; exit 2; }
 die() { printf 'not ready: %s\n' "$*" >&2; exit 1; }
 HUB_SYSID=""
-hub_system_id() { # -> systemID of the hub's maas-db Cluster, from whichever argument's cluster holds it
+find_hub_system_id() { # sets HUB_SYSID to the hub maas-db Cluster's systemID, from whichever argument's cluster holds it
   local kc id
-  if [ -z "$HUB_SYSID" ]; then
-    for kc in "${KUBECONFIGS[@]}"; do
-      [ -r "$kc" ] || continue
-      id=$(oc --kubeconfig "$kc" -n "$NS" get clusters.postgresql.cnpg.io maas-db -o jsonpath='{.status.systemID}' 2>/dev/null || true)
-      [ -n "$id" ] && { HUB_SYSID=$id; break; }
-    done
-  fi
-  printf '%s' "$HUB_SYSID"; }
+  for kc in "${KUBECONFIGS[@]}"; do
+    [ -r "$kc" ] || continue
+    id=$(oc --kubeconfig "$kc" -n "$NS" get clusters.postgresql.cnpg.io maas-db -o jsonpath='{.status.systemID}' 2>/dev/null || true)
+    [ -n "$id" ] && { HUB_SYSID=$id; return 0; }
+  done
+  return 0; }
 KUBECONFIGS=("$@")
 ready_endpoints() { # kubeconfig service -> count of ready addresses behind the Service
   local n; n=$(oc --kubeconfig "$1" -n "$NS" get endpointslices -l "kubernetes.io/service-name=$2" -o json 2>/dev/null \
@@ -42,12 +41,15 @@ for kc in "$@"; do
   origin=""
   if [ "$kind" != ExternalName ]; then
     # A replica cluster bootstrapped from an earlier hub keeps that hub's systemID and can look healthy.
-    hub=$(hub_system_id); [ -n "$hub" ] || die "$site: no hub kubeconfig given whose maas-db Cluster reports a systemID; cannot check the replica's origin"
+    # Looked up once, at the first remote site, and kept for the rest of the run.
+    [ -n "$HUB_SYSID" ] || find_hub_system_id; hub=$HUB_SYSID
+    [ -n "$hub" ] || die "$site: cannot read the hub maas-db Cluster's systemID: the hub's kubeconfig was not given, its cluster is unreachable, or maas-db reports no systemID (needs CloudNativePG 1.27 or later); cannot check the replica's origin"
     read -r sysid primary <<<"$(oc --kubeconfig "$kc" -n "$NS" get clusters.postgresql.cnpg.io maas-read -o jsonpath='{.status.systemID} {.status.currentPrimary}' 2>/dev/null || true)"
     [ -n "${sysid:-}" ] || die "$site: Cluster maas-read reports no systemID"
     [ "$sysid" = "$hub" ] || die "$site: stale replica: maas-read systemID $sysid != hub maas-db systemID $hub; re-create maas-read"
     [ -n "${primary:-}" ] || die "$site: Cluster maas-read reports no current primary"
-    wal=$(oc --kubeconfig "$kc" -n "$NS" exec "$primary" -c postgres -- psql -d postgres -tAc 'select status from pg_stat_wal_receiver' 2>/dev/null || true)
+    wal=$(oc --kubeconfig "$kc" -n "$NS" exec "$primary" -c postgres -- psql -d postgres -tAc 'select status from pg_stat_wal_receiver' 2>/dev/null) \
+      || die "$site: cannot run psql in $primary to read its WAL receiver status"
     [ "$wal" = streaming ] || die "$site: maas-read ($primary) is not streaming from the hub (WAL receiver: ${wal:-none}); check its replication connection"
     origin=", replica of hub system $hub, streaming"
   fi
