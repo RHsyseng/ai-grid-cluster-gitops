@@ -55,6 +55,9 @@ render() { # role inline-values out
   helm template rhai-on-openshift "$CHART" -f "$HERE/../values.yaml" -f "$HERE/../roles/$1.yaml" -f "$2" \
     --set praxis-gateway.grid.siteName=site \
     --set praxis-provider-gateway.grid.siteName=site \
+    --set operator.rhoai.olm.createNamespace=true \
+    --set dependencies.loki.olm.createNamespace=true \
+    --set dependencies.clusterObservability.enabled=true \
   | python3 -c 'import sys, yaml
 for d in yaml.safe_load_all(sys.stdin):
     if d:
