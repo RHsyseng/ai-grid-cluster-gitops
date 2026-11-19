@@ -72,7 +72,7 @@ related_images = {item["name"]: item["value"]
                   for item in values["global"]["relatedImages"]}
 expected = {
     "RELATED_IMAGE_ODH_PRAXIS_AI_GRID_GATEWAY_IMAGE":
-        "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:a28f497b0eb01878c64b05a048dd5906dab399b991db263873030e7fe7ae1665",
+        "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:6318e9c5e859ede1a1f056c8bc8af27dbbcf8249e1e07a1a06dee729bf9e72f8",
 }
 assert related_images == expected, f"unexpected Grid related images: {related_images}"
 PY
@@ -200,7 +200,7 @@ service_accounts = {document["metadata"]["name"] for document in documents
 secrets = {document["metadata"]["name"] for document in documents
            if document.get("kind") == "Secret"}
 payload_image = \
-    "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:a28f497b0eb01878c64b05a048dd5906dab399b991db263873030e7fe7ae1665"
+    "registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:6318e9c5e859ede1a1f056c8bc8af27dbbcf8249e1e07a1a06dee729bf9e72f8"
 
 if "grid-provider-gateway" in deployments:
     provider = deployments["grid-provider-gateway"]["spec"]["template"]["spec"]
