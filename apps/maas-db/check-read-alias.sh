@@ -52,7 +52,7 @@ for kc in "$@"; do
     [ -n "$sysid" ] || die "$site: Cluster maas-read reports no systemID (needs CloudNativePG 1.27 or later)"
     [ "$sysid" = "$hub" ] || die "$site: stale replica: maas-read systemID $sysid != hub maas-db systemID $hub; re-create maas-read"
     [ -n "$primary" ] || die "$site: Cluster maas-read reports no current primary"
-    wal=$(oc --kubeconfig "$kc" -n "$NS" exec "$primary" -c postgres -- psql -d postgres -tAc 'select status from pg_stat_wal_receiver' 2>/dev/null) \
+    wal=$(oc --kubeconfig "$kc" -n "$NS" exec "$primary" -c postgres -- psql -U postgres -d postgres -tAc 'select status from pg_stat_wal_receiver' 2>/dev/null) \
       || die "$site: cannot run psql in $primary to read its WAL receiver status"
     [ "$wal" = streaming ] || die "$site: maas-read ($primary) WAL receiver status is not streaming (${wal:-none}); check its replication connection"
     origin=", replica of hub system $hub, streaming"
