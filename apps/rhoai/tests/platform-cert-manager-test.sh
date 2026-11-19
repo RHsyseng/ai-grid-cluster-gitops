@@ -5,7 +5,7 @@
 # pinned chart per role with each, and asserts that without the label nothing changes and with it exactly the chart's
 # cert-manager Namespace, OperatorGroup and Subscription go away. A second OperatorGroup in cert-manager-operator fails
 # the operator's CSV with TooManyOperatorGroups. RHAI_CHART_DIR skips the OCI pull. Needs helm and PyYAML.
-set -euo pipefail
+set -Eeuo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); T=$(mktemp -d); trap 'rm -rf "$T"' EXIT; mkdir -p "$T/chart/templates"; fails=0; total=0
 APPSET=$HERE/../hub/01-applicationset.yaml
 ok() { total=$((total+1)); printf '   ok   %-62s %s\n' "$1" "${2:-}"; }
@@ -18,6 +18,7 @@ json.dump({"values": src[0]["helm"]["values"], "chart": {"repoURL": src[0]["repo
           open(sys.argv[2], "w"))' "$APPSET" "$T/appset.json"
 
 # Part one: the ApplicationSet's inline values, templated as Argo CD would for a cluster with the given labels.
+# Caveat: this uses Helm's tpl, not Argo CD's goTemplate with missingkey=error, so it misses errors only Argo CD raises.
 printf 'apiVersion: v2\nname: values\nversion: 0.1.0\n' > "$T/chart/Chart.yaml"
 printf '%s\n' '{{ tpl .Values.values (dict "name" "site" "metadata" (dict "labels" .Values.labels)) }}' > "$T/chart/templates/out.yaml"
 inline() { # labels-json out

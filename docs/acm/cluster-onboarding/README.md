@@ -98,7 +98,12 @@ as an override when present.
   Application, which has taken over the platform's namespace and Subscription
   because they carry the chart's names. Labelling it makes Argo CD prune all
   three, and pruning the namespace removes the platform's operator. Protect the
-  two first, on the site, then label it on the hub:
+  two first, on the site, then label it on the hub.
+
+  > **Not yet run on a cluster.** This switch follows Argo CD's documented
+  > prune behaviour, but nobody has run it on a site yet. Dry-run it on a
+  > throwaway site first: a mistake prunes the platform's cert-manager
+  > Operator.
 
   ```bash
   oc annotate namespace cert-manager-operator \
