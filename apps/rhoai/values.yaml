@@ -23,6 +23,9 @@ dependencies:
     olm:
       # Keep aligned with the cert-manager compatibility grant in apps/rhoai-prerequisites/hub/12-otel-cert-manager-policy.yaml.
       namespace: openshift-opentelemetry-operator
+      # Leave olm.config unset: that policy adds AI_GRID_CERT_MANAGER_READY to the Subscription's
+      # spec.config.env, and an env list rendered here would make Argo and the policy alternately
+      # replace it, restarting OTel each time.
 # The payload's Grid runtimes. Argo renders these charts, not the operator, so
 # they name the images the operator's payload ships.
 global:
