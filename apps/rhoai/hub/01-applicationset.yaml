@@ -51,8 +51,11 @@ spec:
           targetRevision: main
           ref: values
         # Immutable OCI snapshot from the 3.6.0 dev channel.
+        # dev.37.1 (upstream PR #338's revision, adopted ahead of its merge):
+        # grid v0.3.2 runtime config and the /v1/conversations path allowances,
+        # matching the v0.3.2 payload images the merge through 95fcde6 pins.
         - repoURL: oci://ghcr.io/opendatahub-io/odh-gitops/rhai-on-openshift-chart
-          targetRevision: 3.6.0-dev.36.1
+          targetRevision: 3.6.0-dev.37.1
           path: .
           helm:
             releaseName: rhai-on-openshift

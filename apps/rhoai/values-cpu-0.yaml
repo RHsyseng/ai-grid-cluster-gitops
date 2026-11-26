@@ -2,72 +2,66 @@
 # ApplicationSet merges this after apps/rhoai/values.yaml and the role
 # profile; absent for other clusters (ignoreMissingValueFiles).
 #
-# Currently exposes cpu-0's MaaS Gateway with the default LoadBalancer mode
-# (the openshiftRoute block below is DISABLED). Route mode was trialed
-# 2026-11-18..20 (chart 3.6.0-dev.36.1): the exposure itself works, but the
-# portal does not -- see RHAI-50273 for the two root causes (the
-# ai-gateway-controller's portal-route hostnames split envoy's vhost; and
-# maas-api's /v1/tenants discovery has no Route-compatible hostname source,
-# reading only the listener hostname, which Route mode forbids). To
-# re-enable Route mode, comment out the spec.addresses pin below and
-# uncomment the openshiftRoute block; the rhoai-maas-gateway-hostname
-# policy self-skips in Route mode, and RHAI-50273's workaround documents
-# what else the portal then needs (controller down + listener flash).
+# Currently exposes cpu-0's MaaS Gateway through an OpenShift Route
+# (openshiftRoute mode), re-enabled on 2026-11-26 to validate the RHAI-50273
+# fixes carried by nightly 35242a37 (f6291b2): the ai-gateway-controller now
+# renders the portal HTTPRoutes hostname-less (single catch-all vhost -- no
+# split, no controller scale-down) and resolves the portal host from the
+# admitted Route; maas-api's /v1/tenants falls back to the Route host when
+# the Gateway status is cluster-local (no listener flash). Expected: zero
+# workarounds. The *.apps wildcard serves the name through the router; no
+# MetalLB address, DNS record or dnsmasq entry is involved.
 #
-# LB-mode exposure contract:
+# LB-mode contract, for when it returns (trialled 2026-11-16..23):
 # - The rhoai-maas-gateway-hostname policy patches the listener hostnames
-#   to maas.<apps domain> (its primary, and maas-api's only readable
-#   source). Do NOT declare a Hostname-typed spec.addresses: istiod copies
-#   spec.addresses into the LoadBalancer Service's spec.loadBalancerIP and
-#   MetalLB allocates for that field only when it is an IP -- a Hostname
-#   wedges a fresh install with "AllocationFailed: invalid
-#   spec.loadBalancerIP" (RHAI-48803, RHAI-50509). IPAddress is fine.
-# - The .93 pin (rack119-pool .90-.96; .90 submariner, .91/.92 grid-operator
-#   signals/swim) keeps the lab DNS record and the node dnsmasq entry stable
-#   across rebuilds. If a rebuild ever claims .93 first, the Gateway stays
-#   Programmed=False with the same AllocationFailed event -- move the pin
-#   and both DNS entries.
-# - The lab needs the specific DNS record (maas.apps.<domain> -> .93; the
-#   *.apps wildcard reaches only the router) and the node dnsmasq entry
-#   (address=/maas.apps.<domain>/.93 in /etc/dnsmasq.d/maas-gateway.conf,
-#   ahead of the wildcard that intercepts in-cluster clients).
-# - The maas-ui SNI race on a fresh install: restart maas-ui after the
-#   gateway-hostname policy patches the listener (runbook step).
+#   (maas-api's primary source). Do NOT declare a Hostname-typed
+#   spec.addresses in LB mode: istiod copies it into the Service's
+#   spec.loadBalancerIP and MetalLB wedges with "AllocationFailed:
+#   invalid spec.loadBalancerIP" (RHAI-48803, RHAI-50509). The .93
+#   IPAddress pin keeps the DNS record and dnsmasq entry stable across
+#   rebuilds (rack119-pool .90-.96; .90 submariner, .91/.92 signals/swim).
+# - LB mode needs the specific DNS record (maas.apps.<domain> -> .93) and
+#   the node dnsmasq entry (address=/maas.apps.<domain>/.93 in
+#   /etc/dnsmasq.d/maas-gateway.conf), and a maas-ui restart on fresh
+#   installs after the policy patches the listener.
+#
+# Route-mode rules the chart enforces: openshiftRoute.host is required;
+# spec.listeners[].hostname is forbidden (hard render failure); every
+# listener needs allowedRoutes.namespaces.from; the chart adds TLS
+# Terminate with the serving-cert secret on HTTPS listeners itself.
 components:
   aigateway:
     modelsAsAService:
       gateway:
+        openshiftRoute:
+          enabled: true
+          host: maas.apps.cpu-0.aigrid.bos2.lab
         spec:
-          addresses:
-            - type: IPAddress
-              value: 192.168.19.93
+          # https only: the chart's openshiftRoute mode sets TLS on every
+          # listener, and the Gateway API rejects tls on an HTTP-protocol
+          # listener, so the default http listener cannot stay. The Route
+          # redirects http to https (insecureEdgeTerminationPolicy:
+          # Redirect), so nothing is lost. Replaces the profile's
+          # http+https pair (Helm replaces lists wholesale).
+          listeners:
+            - name: https
+              port: 443
+              protocol: HTTPS
+              allowedRoutes:
+                namespaces:
+                  from: Selector
+                  selector:
+                    matchExpressions:
+                      - key: kubernetes.io/metadata.name
+                        operator: In
+                        values:
+                          - openshift-ingress
+                          - models-as-a-service
+                          - redhat-ai-gateway-infra
 #
-# Route mode (RHAI-21506/50273 trial 2026-11-18..20; re-enable by swapping
-# with the spec.addresses pin above -- the chart's Route mode takes no
-# addresses, and a Hostname-typed one is both unread and MetalLB-hostile):
+# LB mode (swap with the openshiftRoute block above to return):
 #
-#        openshiftRoute:
-#          enabled: true
-#          host: maas.apps.cpu-0.aigrid.bos2.lab
 #        spec:
-#          # https only: the chart's openshiftRoute mode sets TLS on every
-#          # listener, and the Gateway API rejects tls on an HTTP-protocol
-#          # listener, so the default http listener cannot stay. The Route
-#          # redirects http to https (insecureEdgeTerminationPolicy:
-#          # Redirect), so nothing is lost. Replaces the profile's
-#          # http+https pair (Helm replaces lists wholesale).
-#          listeners:
-#            - name: https
-#              port: 443
-#              protocol: HTTPS
-#              allowedRoutes:
-#                namespaces:
-#                  from: Selector
-#                  selector:
-#                    matchExpressions:
-#                      - key: kubernetes.io/metadata.name
-#                        operator: In
-#                        values:
-#                          - openshift-ingress
-#                          - models-as-a-service
-#                          - redhat-ai-gateway-infra
+#          addresses:
+#            - type: IPAddress
+#              value: 192.168.19.93
