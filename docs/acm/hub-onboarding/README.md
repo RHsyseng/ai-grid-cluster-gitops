@@ -38,7 +38,7 @@ export RHOAI_STAGE_PULL_SECRET=<base64 of user:password for registry.stage.redha
 ./bootstrap.sh
 ```
 
-bootstrap.sh installs the openshift-gitops-operator Subscription, waits for the Argo CRDs, and applies a root ApplicationSet over apps/*/application.yaml. Argo then syncs every app from the fork.
+bootstrap.sh installs the openshift-gitops-operator Subscription, waits for the Argo CRDs, sets the Argo CD application controller's resources from apps/gitops-config/manifests/argocd.yaml, and then applies a root ApplicationSet over apps/*/application.yaml. Argo then syncs every app from the fork.
 
 After `bootstrap.sh` completes, run this manual check. `READY` confirms registration
 prerequisites only; it does not check MultiClusterHub completion or Argo cluster
@@ -82,7 +82,7 @@ docs/acm/cluster-onboarding/import-managed-cluster.sh --spoke-context <spoke> --
 
 The hub manages the grid: CA, grid ID, policies. It needs no Grid CRDs. Running Grid workloads on it is optional.
 
-Needs ACM as above and cert-manager. On a hub that is also a site, the RHOAI app supplies four things grid-bootstrap depends on: cert-manager, the redhat-ai-grid namespace, ClusterSet global bound into that namespace, and, through rhoai-prerequisites, the quay.io/rhoai mirror and pull Secret its pre-release image needs. A hub that is not a site gets them from the [dedicated-hub profile](#dedicated-hub).
+Needs ACM as above and cert-manager. On a hub that is also a site, the RHOAI app supplies four things grid-bootstrap depends on: cert-manager, the redhat-ai-grid namespace, ClusterSet global bound into that namespace, and, through rhoai-prerequisites, the quay.io/rhoai mirror and pull Secret its pre-release image needs. On such a hub labelled `ai-grid/platform-cert-manager=true`, the platform's cert-manager Operator supplies cert-manager instead. A hub that is not a site gets them from the [dedicated-hub profile](#dedicated-hub).
 
 Install grid-enrollment on the hub with the grid-bootstrap app. Its values, [apps/grid-bootstrap/values.yaml](../../../apps/grid-bootstrap/values.yaml):
 

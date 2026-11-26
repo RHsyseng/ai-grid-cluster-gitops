@@ -23,6 +23,11 @@ dependencies:
     olm:
       # Keep aligned with the cert-manager compatibility grant in apps/rhoai-prerequisites/hub/12-otel-cert-manager-policy.yaml.
       namespace: openshift-opentelemetry-operator
+      # Keep aligned with the cert-manager compatibility grant in apps/rhoai-prerequisites/hub/12-otel-cert-manager-policy.yaml.
+      namespace: openshift-opentelemetry-operator
+      # Leave olm.config unset: that policy adds AI_GRID_CERT_MANAGER_READY to the Subscription's
+      # spec.config.env, and an env list rendered here would make Argo and the policy alternately
+      # replace it, restarting OTel each time.
   # Fork divergence (BYO GPU stack): the ZTP flow (ai-grid-policies,
   # aigrid-gpu-*-policy) installs NFD and the NVIDIA GPU operator on the GPU
   # sites at build time under its own OperatorGroups and Subscriptions. The
@@ -42,4 +47,4 @@ dependencies:
 global:
   relatedImages:
     - name: RELATED_IMAGE_ODH_PRAXIS_AI_GRID_GATEWAY_IMAGE
-      value: registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:a28f497b0eb01878c64b05a048dd5906dab399b991db263873030e7fe7ae1665
+      value: registry.redhat.io/rhoai/odh-praxis-ai-grid-gateway-rhel9@sha256:6318e9c5e859ede1a1f056c8bc8af27dbbcf8249e1e07a1a06dee729bf9e72f8

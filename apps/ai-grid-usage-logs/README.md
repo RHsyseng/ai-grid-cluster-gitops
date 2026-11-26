@@ -48,6 +48,11 @@ ServiceAccount from `manifests/30-rbac-provision-usage-logs-tokens.yaml`.
 Their RBAC is applied in wave 3, before the Jobs; the consuming Policy follows
 in wave 5. PostSync would deadlock the first sync because the Policy needs
 these Secrets to become Healthy.
+Both Jobs use `hook-delete-policy: HookSucceeded,BeforeHookCreation`. Argo CD
+names a hook once per sync operation and its retries reuse the name, so a
+failed Job is deleted and run again on the next retry instead of failing every
+retry. For example, the reader's Job fails on a fresh hub when the store Route
+is not up within its wait: 10 minutes per pod, about 30 minutes per Job.
 ACM reads the Secrets with `fromSecret` and ships `$ocm_encrypted` ciphertext,
 so the tokens never appear in a managed cluster's manifest.
 
@@ -130,9 +135,9 @@ A TLS failure without `--cacert` that succeeds with it means the spoke consumer
 is not appending the delivered CA to its system trust pool.
 
 A record pushed at a site collector's receiver should arrive in the hub store
-with `cluster_name`, `model`, `service_name`, `organization_id`, and `user_id`
-promoted as stream labels. `user_id` is the URL-safe Base64 encoding of the
-JSON array `[identity_issuer, subject]`.
+with `cluster_name`, `model`, `service_name`, `tenant_name`,
+`organization_id`, and `user_id` promoted as stream labels. `user_id` is the
+URL-safe Base64 encoding of the JSON array `[identity_issuer, subject]`.
 
 Historical streams keep the labels they had when they were written. Organization
 admins retain the existing scoped historical view. The identity labels start
